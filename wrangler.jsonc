@@ -93,5 +93,4 @@
 		]
 	} // one IngestWorkflow instance per ref update, r-* and l-* repos
 	// "routes": [{ "pattern": "git.example.com", "custom_domain": true }]   ← rendered by `deno task deploy -- --domain`
-	//                                                                          (demo: code.rawkode.academy)
 }

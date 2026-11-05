@@ -244,7 +244,7 @@ Deno.test("only dev-e2e and mock IdP origins are accepted as inputs", async () =
 	const { fetchFn } = await setup();
 	await rejects(
 		signInHeadless(fetchFn, {
-			forge: "https://code.rawkode.academy",
+			forge: "https://forge.example.com",
 			issuer: ISSUER,
 			username: "e2e-owner",
 			password: "x".repeat(43),
@@ -253,7 +253,7 @@ Deno.test("only dev-e2e and mock IdP origins are accepted as inputs", async () =
 	await rejects(
 		signInHeadless(fetchFn, {
 			forge: FORGE,
-			issuer: "https://id.rawkode.academy",
+			issuer: "https://id.example.com",
 			username: "e2e-owner",
 			password: "x".repeat(43),
 		}),

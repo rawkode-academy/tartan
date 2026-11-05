@@ -442,8 +442,8 @@ Deno.test("preflight: no API token degrades the account checks to a warning", as
 });
 
 Deno.test("domain: another Worker's Custom Domain is refused unless --take-domain", () => {
-	const zone = { id: "z1", name: "rawkode.academy" };
-	const host = "code.rawkode.academy";
+	const zone = { id: "z1", name: "example.com" };
+	const host = "forge.example.com";
 	const demo = { zone, attachedTo: ["tartan-dev-demo"], dnsRecords: ["AAAA"] };
 	const refused = domainChecks(host, "tartan-dev-wp21", demo, false);
 	const takeover = refused.find((c) => c.id === "domain-takeover")!;

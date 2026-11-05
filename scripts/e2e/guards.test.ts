@@ -60,7 +60,7 @@ Deno.test("only the two e2e Workers and the dev-e2e stage pass", () => {
 			"tartan",
 			"tartan-e2e-idp",
 			"tartan-dev-e2e-x",
-			"code-rawkode-academy",
+			"forge-production",
 		]
 	) {
 		throws(() => assertWorkerName(name), GuardError, name);
@@ -78,7 +78,7 @@ Deno.test("origins are the workers.dev names of the two Workers, nothing else", 
 	);
 	for (
 		const origin of [
-			"https://code.rawkode.academy",
+			"https://forge.example.com",
 			"https://tartan-dev-demo.acme.workers.dev",
 			"http://tartan-dev-e2e.acme.workers.dev",
 			"https://tartan-dev-e2e.acme.workers.dev/",
@@ -88,7 +88,7 @@ Deno.test("origins are the workers.dev names of the two Workers, nothing else", 
 		throws(() => assertForgeOrigin(origin), GuardError, origin);
 		throws(() => callbackOf(origin), GuardError, origin);
 	}
-	throws(() => assertIdpOrigin("https://id.rawkode.academy"), GuardError);
+	throws(() => assertIdpOrigin("https://id.example.com"), GuardError);
 	throws(() => forgeOriginFor("Acme"), GuardError);
 	throws(() => forgeOriginFor("a.b"), GuardError);
 });

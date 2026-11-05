@@ -4,10 +4,9 @@
 // headers, the canonical-host rules (when `--alt-url` names the stage's
 // workers.dev origin), and, with a PAT in `TARTAN_TOKEN` (scopes `api` +
 // `repo:read`), the token path, the scope check and a refused cookie on git.
-// The IdP side is user-assisted: `--guide` prints the steps (paste
-// `https://id.rawkode.academy` in the wizard so Tartan registers itself by
-// DCR, sign in as owner with the public PKCE client, invite a second user,
-// recover with a rotated token, then repeat from `code.rawkode.academy`).
+// The IdP side is user-assisted: `--guide` prints the steps (register with
+// your issuer by DCR, sign in as owner with the public PKCE client, invite a
+// second user, and recover with a rotated token).
 // Nothing here writes to the forge, and no secret is printed.
 //
 // Usage:
@@ -29,7 +28,7 @@ const arg = (name: string): string | undefined => {
 const GUIDE = `The IdP side (user-assisted), on the stage named by --url:
  1. Open the setup URL the deploy printed (#t=… is the single-use token) or read the claim code from Workers Logs.
  2. Name the forge; keep the canonical origin.
- 3. Paste https://id.rawkode.academy as the issuer: Tartan registers itself by RFC 7591 when the IdP allows it. Record
+ 3. Paste your IdP's issuer URL: Tartan registers itself by RFC 7591 when the IdP allows it. Record
     the client id and that client_auth is 'none' (Admin → Health shows it).
  4. "Sign in to become owner": the IdP's login page, then back to the forge, signed in. Check groups/roles/email_verified
     in the ID token claims (the IdP's consent screen or its admin UI).
@@ -37,8 +36,7 @@ const GUIDE = `The IdP side (user-assisted), on the stage named by --url:
  6. Recovery: wrangler secret put TARTAN_SETUP_TOKEN (a NEW value) → /-/setup → Recover → sign in as owner; the
     7-day banner appears; the same value is refused a second time.
  7. Create a PAT (scopes api, repo:read) and rerun this script with TARTAN_TOKEN set.
- 8. Destroy a scratch stage with deno task destroy and confirm the client is gone at the IdP (RFC 7592).
- 9. Repeat 3–4 from https://code.rawkode.academy (same zone as the IdP).`;
+ 8. Destroy a scratch stage with deno task destroy and confirm the client is gone at the IdP (RFC 7592).`;
 
 const main = async (): Promise<number> => {
 	if (Deno.args.includes("--guide")) {

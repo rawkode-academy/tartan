@@ -30,7 +30,7 @@ Deno.test("only public https hosts on port 443 pass", () => {
 		equal(outboundUrlProblem(url), problem, url);
 	}
 	equal(
-		outboundUrlProblem("https://id.rawkode.academy/auth/oauth2/register"),
+		outboundUrlProblem("https://id.example.com/auth/oauth2/register"),
 		null,
 	);
 	equal(outboundUrlProblem("https://idp.example.com:443/x"), null);

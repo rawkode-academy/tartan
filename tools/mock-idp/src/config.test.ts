@@ -19,15 +19,15 @@ Deno.test("the allow-list accepts the dev-e2e workers.dev callback", () => {
 	deepStrictEqual(parsed.value, [CALLBACK]);
 });
 
-Deno.test("the allow-list refuses the production forge's callback", () => {
+Deno.test("the allow-list refuses another forge's callback", () => {
 	const parsed = parseRedirectAllowList(
-		list("https://code.rawkode.academy/-/auth/callback"),
+		list("https://forge.example.com/-/auth/callback"),
 	);
 	equal(parsed.ok, false);
 	// One bad entry poisons the whole list (fail closed).
 	equal(
 		parseRedirectAllowList(
-			list(CALLBACK, "https://code.rawkode.academy/-/auth/callback"),
+			list(CALLBACK, "https://forge.example.com/-/auth/callback"),
 		).ok,
 		false,
 	);
@@ -78,7 +78,7 @@ Deno.test("the issuer must be the tartan-e2e--idp workers.dev origin", () => {
 		const issuer of [
 			`${ISSUER}/`,
 			"https://tartan-e2e-idp.acme.workers.dev",
-			"https://id.rawkode.academy",
+			"https://id.example.com",
 			"http://tartan-e2e--idp.acme.workers.dev",
 			undefined,
 		]
@@ -101,8 +101,8 @@ Deno.test("loadConfig names the first missing piece without echoing values", asy
 	equal(publicKey.ok, false);
 	const badList = loadConfig({
 		...h.env,
-		ALLOWED_REDIRECT_URIS: list("https://code.rawkode.academy/-/auth/callback"),
+		ALLOWED_REDIRECT_URIS: list("https://forge.example.com/-/auth/callback"),
 	});
 	equal(badList.ok, false);
-	if (!badList.ok) equal(badList.reason.includes("rawkode.academy"), false);
+	if (!badList.ok) equal(badList.reason.includes("forge.example.com"), false);
 });

@@ -88,7 +88,7 @@ Deno.test("registration accepts only a public PKCE client on the allow-list", as
 		"invalid_client_metadata",
 	);
 	refused(
-		tartanBody("https://code.rawkode.academy/-/auth/callback"),
+		tartanBody("https://forge.example.com/-/auth/callback"),
 		"invalid_redirect_uri",
 	);
 	refused(

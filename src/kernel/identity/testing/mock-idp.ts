@@ -54,7 +54,7 @@ const s256 = async (verifier: string): Promise<string> =>
 		),
 	);
 
-/** The default registration answer: what `id.rawkode.academy`-like IdPs return for a public client. */
+/** The default dynamic registration answer for a public client. */
 export const publicClientRegistration: RegistrationHandler = (
 	body,
 	clientId,

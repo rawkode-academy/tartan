@@ -120,13 +120,6 @@ const configureManually = async (): Promise<void> => {
 
 const RECIPES = [
 	{
-		name: "Rawkode Academy ID (id.rawkode.academy)",
-		steps: [
-			"Paste https://id.rawkode.academy above and choose Register.",
-			"Tartan registers itself as a public client with PKCE; no secret is created.",
-		],
-	},
-	{
 		name: "Cloudflare Access (no new vendor)",
 		steps: [
 			"Zero Trust → Access → Applications → Add an application → SaaS → OIDC.",

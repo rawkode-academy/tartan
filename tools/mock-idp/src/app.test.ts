@@ -349,7 +349,7 @@ Deno.test("an authorization request for another redirect URI never redirects", a
 	const { challenge } = await pkce();
 	for (
 		const redirect of [
-			"https://code.rawkode.academy/-/auth/callback",
+			"https://forge.example.com/-/auth/callback",
 			`${CALLBACK}/`,
 			`${FORGE}/-/auth/callback?next=/`,
 		]
@@ -371,7 +371,7 @@ Deno.test("an unusable configuration fails closed everywhere", async () => {
 	const h = await createHarness({
 		ALLOWED_REDIRECT_URIS: JSON.stringify([
 			CALLBACK,
-			"https://code.rawkode.academy/-/auth/callback",
+			"https://forge.example.com/-/auth/callback",
 		]),
 	});
 	for (
@@ -393,7 +393,7 @@ Deno.test("an unusable configuration fails closed everywhere", async () => {
 	equal(register.status, 500);
 	const health = await jsonOf(await h.fetch(`${ISSUER}/-/health`));
 	equal(health.ok, false);
-	equal(JSON.stringify(health).includes("rawkode.academy"), false);
+	equal(JSON.stringify(health).includes("forge.example.com"), false);
 });
 
 Deno.test("RFC 7592: the registration token reads and deletes its client only", async () => {

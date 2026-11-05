@@ -107,8 +107,8 @@ export const SETUP_CHECKS: readonly EnvironmentCheck[] = [
 ];
 
 export const FORGE_SETTINGS = {
-	forgeName: "Rawkode Academy",
-	canonicalOrigin: "https://code.rawkode.academy",
+	forgeName: "Tartan Demo",
+	canonicalOrigin: "https://forge.example.com",
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -65,8 +65,8 @@ const endpointProblem = (
 /**
  * Discovers `issuer` (`<issuer>/.well-known/openid-configuration`). The
  * metadata's `issuer` must equal the pasted string exactly (OpenID Connect
- * Discovery, section 4.3): `https://id.rawkode.academy/` does not match
- * `https://id.rawkode.academy`, although both parse to the same URL.
+ * Discovery, section 4.3): `https://id.example.com/` does not match
+ * `https://id.example.com`, although both parse to the same URL.
  */
 export const discover = async (
 	issuer: string,

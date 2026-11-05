@@ -587,14 +587,14 @@ Deno.test("moduleRequest always sets the routing header itself", () => {
 
 Deno.test("IdP public client (none) by default; DCR request", () => {
 	const manual = IdpConfigRequestSchema.safeParse({
-		issuer: "https://id.rawkode.academy",
+		issuer: "https://id.example.com",
 		clientId: "tartan",
 	});
 	ok(manual.success);
 	equal(manual.success && manual.data.clientAuth, "none");
 	equal(
 		IdpConfigRequestSchema.safeParse({
-			issuer: "https://id.rawkode.academy",
+			issuer: "https://id.example.com",
 			clientId: "tartan",
 			clientAuth: "none",
 			clientSecret: "s3cret",
@@ -610,24 +610,24 @@ Deno.test("IdP public client (none) by default; DCR request", () => {
 		}).success,
 	);
 	ok(
-		IdpRegisterRequestSchema.safeParse({ issuer: "https://id.rawkode.academy" })
+		IdpRegisterRequestSchema.safeParse({ issuer: "https://id.example.com" })
 			.success,
 	);
 	equal(
-		IdpRegisterRequestSchema.safeParse({ issuer: "http://id.rawkode.academy" })
+		IdpRegisterRequestSchema.safeParse({ issuer: "http://id.example.com" })
 			.success,
 		false,
 	);
 	// An initial access token for IdPs that require one.
 	ok(
 		IdpRegisterRequestSchema.safeParse({
-			issuer: "https://id.rawkode.academy",
+			issuer: "https://id.example.com",
 			initialAccessToken: "iat-123",
 		}).success,
 	);
 	equal(
 		IdpRegisterRequestSchema.safeParse({
-			issuer: "https://id.rawkode.academy",
+			issuer: "https://id.example.com",
 			initialAccessToken: "",
 		}).success,
 		false,

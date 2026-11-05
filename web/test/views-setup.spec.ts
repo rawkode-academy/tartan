@@ -215,7 +215,7 @@ describe("setup wizard: pre-claim", () => {
 		await flush();
 		click(button(app.root, "Continue"));
 		await flush();
-		type(input(app.root, "forgeName"), "Rawkode Academy");
+		type(input(app.root, "forgeName"), "Example Forge");
 		type(input(app.root, "canonicalOrigin"), "http://insecure.example");
 		await flush();
 		expect("disabled" in byText(app.root, "button", "Save and continue")!.attrs)
@@ -229,7 +229,7 @@ describe("setup wizard: pre-claim", () => {
 		submit(byTag(app.root, "form")[0]!);
 		await flush();
 		expect(app.calls.find((c) => c.path === "/-/setup/name")?.body).toEqual({
-			forgeName: "Rawkode Academy",
+			forgeName: "Example Forge",
 			canonicalOrigin: "https://tartan.acme.workers.dev",
 		});
 		expect(title(app.root)).toBe("Identity provider");
@@ -253,14 +253,14 @@ describe("setup wizard: pre-claim", () => {
 
 	it("registers by DCR from a pasted issuer, sending the initial access token once", async () => {
 		const app = await toIdp();
-		type(input(app.root, "issuer"), "https://id.rawkode.academy");
+		type(input(app.root, "issuer"), "https://id.example.com");
 		type(input(app.root, "initialAccessToken"), "iat-123");
 		await flush();
 		submit(byTag(app.root, "form")[0]!);
 		await flush();
 		expect(app.calls.find((c) => c.path === "/-/setup/idp/register")?.body)
 			.toEqual({
-				issuer: "https://id.rawkode.academy",
+				issuer: "https://id.example.com",
 				initialAccessToken: "iat-123",
 			});
 		expect(text(app.root)).toContain("Client id tartan-dev-8f2c");
@@ -276,10 +276,10 @@ describe("setup wizard: pre-claim", () => {
 
 	it("warns about a trailing slash and refuses non-https issuers", async () => {
 		const app = await toIdp();
-		type(input(app.root, "issuer"), "https://id.rawkode.academy/");
+		type(input(app.root, "issuer"), "https://id.example.com/");
 		await flush();
 		expect(text(app.root)).toContain("Most have no trailing slash");
-		type(input(app.root, "issuer"), "http://id.rawkode.academy");
+		type(input(app.root, "issuer"), "http://id.example.com");
 		await flush();
 		expect("disabled" in byText(app.root, "button", "Register Tartan")!.attrs)
 			.toBe(true);
@@ -312,7 +312,7 @@ describe("setup wizard: pre-claim", () => {
 		const app = await toIdp();
 		const recipes = byTag(app.root, "summary").map(text);
 		expect(recipes).toContain("Cloudflare Access (no new vendor)");
-		expect(recipes.some((r) => r.includes("id.rawkode.academy"))).toBe(true);
+		expect(recipes).toContain("Keycloak, Authentik, Pocket ID");
 	});
 
 	it("sends a signed-out visitor of a set-up forge to sign in", async () => {

@@ -66,14 +66,14 @@ Deno.test("idp.json never holds the private key and names only dev-e2e callbacks
 		() =>
 			parseIdpState(
 				idpJson({
-					redirectUris: ["https://code.rawkode.academy/-/auth/callback"],
+					redirectUris: ["https://forge.example.com/-/auth/callback"],
 				}),
 			),
 		GuardError,
 	);
 	throws(() => parseIdpState(idpJson({ seed: "short" })), GuardError);
 	throws(
-		() => parseIdpState(idpJson({ issuer: "https://id.rawkode.academy" })),
+		() => parseIdpState(idpJson({ issuer: "https://id.example.com" })),
 		GuardError,
 	);
 });
@@ -91,7 +91,7 @@ Deno.test("the setup token comes from the exact 0600 file on the forge origin", 
 
 	const other = memoryFs({
 		[paths.setupUrl]: {
-			text: `https://code.rawkode.academy/-/setup#t=${"t".repeat(43)}`,
+			text: `https://forge.example.com/-/setup#t=${"t".repeat(43)}`,
 			mode: 0o600,
 		},
 	});
@@ -134,7 +134,7 @@ Deno.test("the deploy record must be dev-e2e on workers.dev without a domain", (
 	);
 	throws(() => parseForgeRecord(record({ stage: "dev-demo" })), GuardError);
 	throws(
-		() => parseForgeRecord(record({ domain: "code.rawkode.academy" })),
+		() => parseForgeRecord(record({ domain: "forge.example.com" })),
 		GuardError,
 	);
 	throws(

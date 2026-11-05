@@ -103,7 +103,7 @@ Deno.test("the stage reader accepts the launcher's values only", () => {
 			return true;
 		});
 	refused(
-		{ ...ENV, TARTAN_E2E_ORIGIN: "https://code.rawkode.academy" },
+		{ ...ENV, TARTAN_E2E_ORIGIN: "https://forge.example.com" },
 		/TARTAN_E2E_ORIGIN/,
 	);
 	refused(
@@ -111,7 +111,7 @@ Deno.test("the stage reader accepts the launcher's values only", () => {
 		/TARTAN_E2E_ORIGIN/,
 	);
 	refused(
-		{ ...ENV, TARTAN_E2E_ISSUER: "https://id.rawkode.academy" },
+		{ ...ENV, TARTAN_E2E_ISSUER: "https://id.example.com" },
 		/TARTAN_E2E_ISSUER/,
 	);
 	refused(

@@ -79,17 +79,17 @@ describe("environment checks", () => {
 
 describe("issuer field", () => {
 	it("accepts an https issuer exactly as typed (trimmed)", () => {
-		expect(checkIssuer("  https://id.rawkode.academy ")).toEqual({
+		expect(checkIssuer("  https://id.example.com ")).toEqual({
 			ok: true,
-			issuer: "https://id.rawkode.academy",
+			issuer: "https://id.example.com",
 		});
 	});
 
 	it("warns about (but keeps) a trailing slash: issuers match exactly", () => {
-		const result = checkIssuer("https://id.rawkode.academy/");
+		const result = checkIssuer("https://id.example.com/");
 		expect(result.ok).toBe(true);
 		if (result.ok) {
-			expect(result.issuer).toBe("https://id.rawkode.academy/");
+			expect(result.issuer).toBe("https://id.example.com/");
 			expect(result.warning).toMatch(/trailing slash/);
 		}
 	});
@@ -98,8 +98,8 @@ describe("issuer field", () => {
 		for (
 			const bad of [
 				"",
-				"id.rawkode.academy",
-				"http://id.rawkode.academy",
+				"id.example.com",
+				"http://id.example.com",
 				"https://user:pw@id.example",
 				"https://id.example/?a=1",
 				"https://id.example/#x",
@@ -112,11 +112,11 @@ describe("issuer field", () => {
 	});
 
 	it("derives the redirect and JWKS URLs from the canonical origin", () => {
-		expect(redirectUri("https://code.rawkode.academy")).toBe(
-			"https://code.rawkode.academy/-/auth/callback",
+		expect(redirectUri("https://forge.example.com")).toBe(
+			"https://forge.example.com/-/auth/callback",
 		);
-		expect(jwksUri("https://code.rawkode.academy/")).toBe(
-			"https://code.rawkode.academy/-/auth/jwks.json",
+		expect(jwksUri("https://forge.example.com/")).toBe(
+			"https://forge.example.com/-/auth/jwks.json",
 		);
 	});
 });

@@ -32,7 +32,7 @@ Issues are `rawkode.issues` tools, called over `POST /-/api/repos/<id>/ext/rawko
 
 ## Design system
 
-- `src/design-system/theme/academy.ts`: Rawkode Academy tokens, copied from the private `packages/design-system` package. Change values there first.
+- `src/design-system/theme/academy.ts`: the design tokens used by Tartan. Change their values here.
 - `src/design-system/theme/recipes.ts`: Panda recipes, written against those tokens. `strictTokens` is on.
 - `src/design-system/*.vue`: Vue components. Ark UI handles behaviour for `Select`, `Segmented`, `SplitPane` and `Field`, and for the Jump box and tree accordion in `src/forge`.
 

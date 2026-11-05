@@ -1,4 +1,4 @@
-// Rawkode Academy design tokens, copied because the package is private and unpublished.
+// Design tokens originally adapted from the Rawkode Academy design system.
 // Source: rawkode-academy/rawkode-academy packages/design-system/panda.config.ts @ 07b82f91
 // Change values there first. Page-specific tokens (editorial, KubeTrack, masthead) are left out.
 

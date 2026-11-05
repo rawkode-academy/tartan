@@ -416,7 +416,7 @@ describe("forge settings and health", () => {
 	it("shows the forge name, build, bindings and root-key notice, and only calls routes the kernel serves", async () => {
 		const app = await mountApp("/-/settings");
 		const page = text(app.root);
-		expect(page).toContain("Rawkode Academy");
+		expect(page).toContain("Tartan Demo");
 		expect(page).toContain("Root key held in Durable Object storage");
 		expect(page).toContain("ARTIFACTS: ok");
 		for (
