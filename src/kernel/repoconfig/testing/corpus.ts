@@ -4,7 +4,7 @@
 // oracle the evaluator must match). Each case directory holds a
 // repository's ROOT `*.cue` files (ADR repo config: Tartan config is the root
 // package `tartan`; other packages may sit beside it). Used by
-// corpus.test.ts and the runner image test.
+// corpus.test.ts and evaluators/wasm.test.ts.
 
 import {
 	CUE_EVAL_CONTRACT,

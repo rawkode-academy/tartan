@@ -15,10 +15,17 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { buildSync } from "esbuild";
 import { defineConfig } from "vitest/config";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const fromRoot = (path: string): string =>
 	fileURLToPath(new URL(path, import.meta.url));
+
+// The built evaluator's assets (the CUE_WASM_*_ASSET constants in
+// packages/contract/src/repoconfig.ts).
+const CUE_WASM_MODULE = fromRoot("./web/public/_cue/cue-v0.17.1.wasm.gz");
+const CUE_WASM_GLUE = fromRoot("./web/public/_cue/wasm_exec-v0.17.1.js");
+const CUE_WASM_BUILD = fromRoot("./web/public/_cue/build-v0.17.1.txt");
 
 // Equal to COMPAT_DATE in packages/contract/src/product.ts.
 const COMPAT_DATE = "2026-08-15";
@@ -87,6 +94,17 @@ const miniflare = {
 		INGEST: { name: "tartan-ingest", className: "IngestWorkflow" },
 	},
 	workerLoaders: { LOADER: {} },
+	// The built evaluator (`deno task build:cue`), for its workerd test; that
+	// test skips without it.
+	...(existsSync(CUE_WASM_MODULE)
+		? {
+			dataBlobBindings: { TEST_CUE_WASM_GZ: CUE_WASM_MODULE },
+			textBlobBindings: {
+				TEST_CUE_GLUE: CUE_WASM_GLUE,
+				TEST_CUE_BUILD: CUE_WASM_BUILD,
+			},
+		}
+		: {}),
 	r2Buckets: { BLOBS: "tartan-blobs" },
 	kvNamespaces: { OAUTH_KV: "tartan-oauth-kv" },
 	bindings: {

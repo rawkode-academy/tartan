@@ -144,5 +144,5 @@ input hash.
 - **Classic containers via the Sandbox SDK** for real git (`merge-tree`, notes, lease pushes) and real toolchains,
   in one runner image.
 - **Repository config in CUE.** A repository's Tartan config is the CUE package `tartan` in its root, evaluated by
-  the official `cue` CLI in a sandbox and applied from trunk only; see
+  CUE compiled to WebAssembly in a Dynamic Worker and applied from trunk only; see
   [`ADR-repo-config-cue.md`](ADR-repo-config-cue.md).

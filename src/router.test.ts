@@ -240,7 +240,6 @@ const TABLE: readonly [string, string, string, string][] = [
 	["GET", "/-/api/usage", "api.usage", "WP9"],
 	["POST", "/-/dev/runs/r_x", "dev.runs", "WP9"],
 	["POST", "/-/dev/land/r_x/setup", "dev.land", "WP10"],
-	["POST", "/-/dev/cue", "dev.cue", "WP9"],
 	["POST", "/-/dev/projects/r_x/seed", "dev.projects", "WP25"],
 	["GET", "/-/api/advances", "api.advances", "WP10"],
 	["GET", "/-/api/why", "api.why", "WP10"],
@@ -515,7 +514,6 @@ Deno.test("only health, deploy-script endpoints, the wizard, its API and the OID
 			"auth.callback",
 			"auth.jwks",
 			"auth.login",
-			"dev.cue",
 			"dev.k2",
 			"dev.land",
 			"dev.projects",
@@ -533,7 +531,6 @@ Deno.test("only health, deploy-script endpoints, the wizard, its API and the OID
 			"admin.idp.deregister",
 			"dev.runs",
 			"dev.land",
-			"dev.cue",
 			"dev.k2",
 			"dev.projects",
 		]

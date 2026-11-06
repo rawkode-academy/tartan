@@ -108,7 +108,6 @@ const SAMPLES: Readonly<Record<string, readonly [string, string]>> = {
 	"api.usage": ["GET", "/-/api/usage"],
 	"dev.runs": ["POST", "/-/dev/runs"],
 	"dev.land": ["POST", "/-/dev/land/01k6aaaaaaaaaaaaaaaaaaaaaa/setup"],
-	"dev.cue": ["POST", "/-/dev/cue"],
 	"dev.projects": [
 		"POST",
 		"/-/dev/projects/01k6aaaaaaaaaaaaaaaaaaaaaa/seed",
@@ -215,7 +214,6 @@ describe("router table", () => {
 		// WP10: the seeding route does not exist without dev tools.
 		"api.seed-history": 404,
 		"dev.land": 404,
-		"dev.cue": 404,
 		// WP25: the sample repo does not exist (a public read needs no
 		// caller); the dev route is invisible without dev tools and the key.
 		"api.repos.projects": 404,

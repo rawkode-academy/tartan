@@ -20,6 +20,7 @@ import {
 	type EvalResponse,
 	FORGE_BINDING_FILE,
 	fromRpcError,
+	KERNEL_EVENT_DATA,
 } from "@tartan/contract";
 import { cueFile } from "./testing/git.ts";
 import {
@@ -1083,4 +1084,43 @@ Deno.test("timers never await an evaluation: a hung sandbox and hung reads retur
 	await h.runTimers(1);
 	ok(Date.now() - started < 1000);
 	equal(h.head()!.status, "pending");
+});
+
+Deno.test("an owner's trunk push is the config's sign-off: it evaluates and applies; denials and non-users do not", async () => {
+	const push = (
+		kind: string,
+		id: string,
+		sha: string,
+		ref = "refs/heads/main",
+	) =>
+		({
+			type: "push.accepted",
+			data: { target: "repo", ref, after: sha },
+			actor: { kind, id },
+		}) as unknown as Envelope;
+	const h = await setup();
+	const sha = h.trunk({ "tartan.cue": WEAVE2 });
+	h.internal.observeSync(push("agent", "ag_x", sha));
+	h.internal.observeSync(push("user", "u_owner", sha, "refs/heads/other"));
+	await h.runTimers();
+	equal(h.jobs.length, 0, "only a person's push of trunk is followed");
+	h.internal.observeSync(push("user", "u_owner", sha));
+	await h.runTimers();
+	equal(h.jobs[0]?.job.class, "external");
+	await h.deliver();
+	await h.runTimers();
+	await h.runTimers();
+	equal(h.head()!.status, "current");
+	equal(rowAt(h, sha)?.status, "ok");
+	equal(await weaveBatch(h), 2, "applied");
+	equal(h.internal.holdSync().held, false);
+});
+
+Deno.test("push.owner is a cause the contract accepts for repo.config.needs-apply", () => {
+	const parsed = KERNEL_EVENT_DATA["repo.config.needs-apply"].safeParse({
+		sha: "a".repeat(40),
+		inputKey: "b".repeat(64),
+		cause: "push.owner",
+	});
+	equal(parsed.success, true);
 });

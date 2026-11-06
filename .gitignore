@@ -26,3 +26,6 @@ packages/contract/schema/envelope-1.json
 
 # local-only notes and evidence (never committed or published)
 /.private/
+
+# The built repository-config evaluator (deno task build:cue)
+web/public/_cue/

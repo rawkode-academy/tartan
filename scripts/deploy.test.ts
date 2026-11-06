@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as path from "node:path";
+import { CUE_WASM_BUILD_ASSET } from "@tartan/contract";
 import {
 	assessNodeModules,
 	checkDeployedDigest,
@@ -126,7 +127,12 @@ const world = (input: {
 	const workersDev = `https://${worker}.example.workers.dev`;
 	const calls: World["calls"] = [];
 	const requests: string[] = [];
-	const files = new Map<string, { text: string; secret: boolean }>();
+	const files = new Map<string, { text: string; secret: boolean }>([
+		[`/repo/web/public${CUE_WASM_BUILD_ASSET}`, {
+			text: `${"a".repeat(64)}\n`,
+			secret: false,
+		}],
+	]);
 	const logs: string[] = [];
 	const printed: string[] = [];
 	const deployResults = [
@@ -285,9 +291,9 @@ Deno.test("options: defaults and refusals", () => {
 			(e) => e instanceof UsageError && e.message.includes(text),
 		);
 	refuse(["--stage", "prod", "--dev-tools"], "dev or dev-*");
-	refuse(
-		["--stage", "dev", "--repo-config", "--no-containers"],
-		"needs containers",
+	eq(
+		opts(["--stage", "dev", "--repo-config", "--no-containers"]).repoConfig,
+		true,
 	);
 	eq(opts(["--stage", "dev", "--repo-config"]).repoConfig, true);
 	eq(opts(["--stage", "dev", "--projects", "--no-containers"]).projects, true);
@@ -1080,6 +1086,26 @@ Deno.test("registry variant: a fresh record is rendered by digest and checked af
 	assert(rendered.includes(`"image": "${ref}"`));
 	// --repo-config renders the switch (ADR repo config; off by default).
 	assert(rendered.includes('"TARTAN_REPO_CONFIG": "on"'));
+	// Without the built evaluator, the switch is refused before anything deploys.
+	const unbuilt = world();
+	unbuilt.files.delete(`/repo/web/public${CUE_WASM_BUILD_ASSET}`);
+	await assert.rejects(
+		() =>
+			runDeploy(
+				opts(["--stage", "dev-wp21", "--no-containers", "--repo-config"]),
+				unbuilt.deps,
+			),
+		(e) => e instanceof DeployError && e.message.includes("build:cue"),
+	);
+	assert(
+		!unbuilt.calls.some((c) => c.line.startsWith("npx wrangler deploy")),
+	);
+	// The evaluator goes into web/public before the SPA build copies it.
+	const built = w.calls.map((c) => c.line);
+	const buildIndex = (prefix: string) =>
+		built.findIndex((l) => l.startsWith(prefix));
+	assert(buildIndex("deno task build:cue") >= 0, built.join("\n"));
+	assert(buildIndex("deno task build:cue") < buildIndex("npm run build:web"));
 	assert(
 		!w.calls.some((c) =>
 			c.line.includes("publish.ts") || c.line.startsWith("docker")

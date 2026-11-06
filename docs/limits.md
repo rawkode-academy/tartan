@@ -23,8 +23,9 @@ acting for agents, lane-pinned tokens and `lanes`-only tokens. An agent's push t
 sooner, with `agents-lanes-only`.
 
 This knowingly weakens "trunk moves only through the Advance". An Owner's push is not tested, gets no why-note, passes no
-gates and takes no sign-off, even for a root `*.cue` file, and the repository config module does not follow it: with
-`--repo-config` on, its config stays at the last commit that came through the Advance or an import.
+gates and takes no separate sign-off. With `--repo-config` on, the repository config module follows it: the push of a
+root `*.cue` file is the forge's owner signing off, so trunk's config is evaluated and applied. A config with denials or
+CUE errors stays unapplied, and the last good config stays in force.
 
 Only fast-forwards land. The server checks: the `old` a client sends must be trunk's tip, else `stale-old`; the pack goes up under a hidden quarantine ref, and RepoProbe walks it before
 trunk moves. A rewrite, even with `--force`, and a deletion get `non-fast-forward`. One push adds at most 5,000 commits to

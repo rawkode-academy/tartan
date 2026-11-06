@@ -1,6 +1,6 @@
-// A local `cue` subprocess behind tartan.cue-eval/1, for Deno tests and the
-// CLI's `tartan config` helpers (`CUE_BIN`). Never used by the Worker: the
-// forge evaluates only in a `cue:*` sandbox (ADR repo config).
+// The official `cue` CLI behind tartan.cue-eval/1 (`CUE_BIN`): the oracle the
+// corpus compares the WebAssembly evaluator with, and the CLI's `tartan config`
+// helpers. Never used by the Worker (ADR repo config).
 //
 // It writes the request's files to a temporary module root, adds
 // `cue.mod/module.cue` with a module path fresh for the call (as the job

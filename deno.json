@@ -15,6 +15,7 @@
 		"dryrun": "deno run -A scripts/render-config.ts --stage dryrun --no-containers && npx wrangler deploy --dry-run -c .wrangler/deploy/wrangler.dryrun.jsonc",
 		"dryrun:k2": "deno run -A scripts/render-config.ts --stage dryrun --no-containers --k2-stream 0123456789abcdef0123456789abcdef --k2-token-store 0123456789abcdef0123456789abcdef --k2-token-secret k2-consumer && npx wrangler deploy --dry-run -c .wrangler/deploy/wrangler.dryrun.jsonc",
 		"build:ext": "deno run -A scripts/build-ext.ts",
+		"build:cue": "deno run -A scripts/build-cue-wasm.ts",
 		"issues:setup": "deno run -A scripts/setup-issues.ts",
 		"deploy": "deno run -A scripts/deploy.ts",
 		"destroy": "deno run -A scripts/destroy.ts",

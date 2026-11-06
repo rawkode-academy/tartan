@@ -36,16 +36,11 @@ import { EXT_ID_RE, SEMVER_RE } from "./ids.ts";
 // ---------------------------------------------------------------------------
 
 export const CUE_EVAL_CONTRACT = "tartan.cue-eval/1" as const;
-/** The pinned CUE release (runner image stage, CLI-backed tests). */
+/** The pinned CUE release (`tools/cue-wasm/go.mod`, the CLI the corpus compares with). */
 export const CUE_VERSION = "v0.17.1" as const;
 /**
- * `containers/runner/cue-job.sh` reports this version; bump it with the
- * script. 2: the root layout (`.:tartan`) and a module path fresh per job.
- * 3: no core files, a process cap for `tartan-git`, cue's stdout
- * discarded, bundles in a root-owned directory, leftover processes killed
- * after the job. 4: an export that reaches the file cap is reported as the
- * cap (cue ignores SIGXFSZ and exits 1), and the job directory is stripped
- * from error text too.
+ * The evaluator job's result line (`classifyCueJob`); bump it with the
+ * line's meaning.
  */
 export const CUE_JOB_VERSION = 4 as const;
 /**
@@ -54,11 +49,20 @@ export const CUE_JOB_VERSION = 4 as const;
  */
 export const REPO_CONFIG_RULES_VERSION = 2 as const;
 /**
- * Part of every input key: the CUE version, the job script and the file
+ * Part of every input key: the CUE version, the evaluator job and the file
  * rules, so changing any of them re-evaluates.
  */
 export const CUE_EVALUATOR_ID =
-	`cue@${CUE_VERSION}/cli+job@${CUE_JOB_VERSION}+rules@${REPO_CONFIG_RULES_VERSION}` as const;
+	`cue@${CUE_VERSION}/wasm+job@${CUE_JOB_VERSION}+rules@${REPO_CONFIG_RULES_VERSION}` as const;
+
+/** The gzipped evaluator module, as a static asset (`scripts/build-cue-wasm.ts`). */
+export const CUE_WASM_MODULE_ASSET =
+	`/_cue/cue-${CUE_VERSION}.wasm.gz` as const;
+/** Its Go glue, from the toolchain that built it. */
+export const CUE_WASM_GLUE_ASSET = `/_cue/wasm_exec-${CUE_VERSION}.js` as const;
+
+/** The id of that build: what a Dynamic Worker's loader id names. */
+export const CUE_WASM_BUILD_ASSET = `/_cue/build-${CUE_VERSION}.txt` as const;
 
 /** The CUE package that is Tartan config (`cue export .:tartan`). */
 export const REPO_CONFIG_PACKAGE = "tartan" as const;
@@ -135,11 +139,11 @@ export const REPO_CONFIG_LIMITS = {
 	stderrBytes: 64 * 1024,
 	/** A published package's `config.cue`. */
 	configCueBytes: 64 * 1024,
-	/** `timeout --foreground -s KILL`. */
+	/** CPU time of one evaluation. */
 	wallClockS: 10,
-	/** `ulimit -v` (RLIMIT_AS), in KiB. */
-	addressSpaceKiB: 2 * 1024 * 1024,
-	/** `ulimit -f` (output and stderr files), in KiB. */
+	/** The evaluator module's maximum memory, in KiB: inside a Worker isolate's 128 MB. */
+	memoryKiB: 96 * 1024,
+	/** The largest export the evaluator reports as a value, in KiB. */
 	outputFileKiB: 4096,
 	/** The host deadline per attempt, from dispatch. */
 	deadlineColdMs: 75_000,
@@ -216,7 +220,7 @@ export type EvalIssue = z.infer<typeof EvalIssueSchema>;
 
 export type EvalLimits = {
 	readonly wallClockS: number;
-	readonly addressSpaceKiB: number;
+	readonly memoryKiB: number;
 	readonly outputFileKiB: number;
 	readonly jsonBytes: number;
 	readonly stderrBytes: number;
@@ -224,7 +228,7 @@ export type EvalLimits = {
 
 export const DEFAULT_EVAL_LIMITS: EvalLimits = {
 	wallClockS: REPO_CONFIG_LIMITS.wallClockS,
-	addressSpaceKiB: REPO_CONFIG_LIMITS.addressSpaceKiB,
+	memoryKiB: REPO_CONFIG_LIMITS.memoryKiB,
 	outputFileKiB: REPO_CONFIG_LIMITS.outputFileKiB,
 	jsonBytes: REPO_CONFIG_LIMITS.jsonBytes,
 	stderrBytes: REPO_CONFIG_LIMITS.stderrBytes,
@@ -413,7 +417,7 @@ export type CueSubmitResult =
 	| {
 		readonly accepted: true;
 		readonly jobId: string;
-		/** The container was running when the job was queued (deadline 30 s, else 75 s). */
+		/** The evaluator had loaded when the job was queued (deadline 30 s, else 75 s). */
 		readonly warm: boolean;
 		/** Jobs ahead of this one in the sandbox. */
 		readonly ahead: number;

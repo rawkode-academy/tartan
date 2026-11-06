@@ -2,7 +2,7 @@
 // `cue:preview:<k>`; ADR repo config, "Testing"):
 // `cueSubmit` returns before the job runs, single flight by input key,
 // strict priority on `cue:trunk`, previews kept apart and rate-limited, the
-// bundle and one exec per job, results through the sinks, and an outage.
+// bundle and one run per job, results through the sinks, and an outage.
 
 import { deepStrictEqual, equal, match, ok } from "node:assert/strict";
 import {
@@ -10,23 +10,23 @@ import {
 	CUE_EVALUATOR_ID,
 	CUE_JOB_VERSION,
 	CUE_VERSION,
+	CUE_WASM_GLUE_ASSET,
+	CUE_WASM_MODULE_ASSET,
 	type CueJobClass,
 	type CueJobInput,
 	type CueJobSink,
 	DEFAULT_EVAL_LIMITS,
 	type EvalResponse,
 	isEvalOk,
-	JOB_SLOT_DEFAULTS,
 	REPO_CONFIG_LIMITS,
 } from "@tartan/contract";
 import { createFakeStorage } from "../repo/testing/sqlite.ts";
-import { createCueQueue, type CueExecResult } from "./cue.ts";
+import { createCueQueue } from "./cue.ts";
 
 const KEY = (n: number) => n.toString(16).padStart(64, "c");
 
-const result = (rc = 0): CueExecResult => ({
-	exitCode: rc,
-	stdout: `${
+const result = (rc = 0): string =>
+	`${
 		JSON.stringify({
 			job: CUE_JOB_VERSION,
 			cue: CUE_VERSION,
@@ -37,20 +37,17 @@ const result = (rc = 0): CueExecResult => ({
 			err: rc === 0 ? "" : "x: conflicting values 1 and 2:\n    ./a.cue:3:4\n",
 			errBytes: 0,
 		})
-	}\n`,
-	stderr: "",
-});
+	}\n`;
 
 type Delivery = { sink: CueJobSink; key: string; envelope: EvalResponse };
 
 const harness = (role: "trunk" | "preview", opts: {
 	available?: boolean;
-	exec?: (command: string) => Promise<CueExecResult>;
+	run?: (bundle: string) => Promise<string>;
 } = {}) => {
 	const storage = createFakeStorage();
 	const deliveries: Delivery[] = [];
-	const execs: string[] = [];
-	const writes: { path: string; content: string }[] = [];
+	const bundles: string[] = [];
 	const background: Promise<unknown>[] = [];
 	let t = 1_000;
 	const queue = createCueQueue({
@@ -62,13 +59,9 @@ const harness = (role: "trunk" | "preview", opts: {
 		port: {
 			available: () => opts.available ?? true,
 			warm: () => true,
-			writeFile: (path, content) => {
-				writes.push({ path, content });
-				return Promise.resolve();
-			},
-			exec: (command) => {
-				execs.push(command);
-				return opts.exec ? opts.exec(command) : Promise.resolve(result());
+			run: (bundle) => {
+				bundles.push(bundle);
+				return opts.run ? opts.run(bundle) : Promise.resolve(result());
 			},
 			waitUntil: (work) => void background.push(work),
 		},
@@ -82,8 +75,7 @@ const harness = (role: "trunk" | "preview", opts: {
 	return {
 		queue,
 		deliveries,
-		execs,
-		writes,
+		bundles,
 		advance: (ms: number) => {
 			t += ms;
 		},
@@ -113,7 +105,7 @@ const job = (
 	...over,
 });
 
-/** An exec that waits for `release()`. */
+/** A run that waits for `release()`. */
 const gate = () => {
 	let release!: () => void;
 	const opened = new Promise<void>((r) => (release = r));
@@ -123,7 +115,7 @@ const gate = () => {
 Deno.test("cueSubmit returns before the job runs; the envelope arrives through the sink", async () => {
 	const g = gate();
 	const h = harness("trunk", {
-		exec: async () => {
+		run: async () => {
 			await g.opened;
 			return result();
 		},
@@ -140,25 +132,21 @@ Deno.test("cueSubmit returns before the job runs; the envelope arrives through t
 	equal(h.deliveries.length, 1);
 	equal(h.deliveries[0].key, KEY(1));
 	ok(isEvalOk(h.deliveries[0].envelope));
-	// One bundle, one exec, as tartan-git, with the bundle removed after.
-	equal(h.writes.length, 1);
-	ok(h.writes[0].path.startsWith("/opt/tartan-cue/bundles/bundle-"));
-	const bundle = JSON.parse(h.writes[0].content);
+	// One bundle, one run.
+	equal(h.bundles.length, 1);
+	const bundle = JSON.parse(h.bundles[0]);
 	equal(bundle.v, 1);
 	equal(
 		atob(bundle.files["tartan.cue"]),
 		"package tartan\n\nx: 1\n",
 	);
-	equal(h.execs.length, 1);
-	ok(h.execs[0].includes("setpriv --reuid=tartan-git"));
-	ok(h.execs[0].includes("rm -f /opt/tartan-cue/bundles/bundle-"));
 	deepStrictEqual(h.queue.list(), []);
 });
 
 Deno.test("single flight: a duplicate submit joins the queued job and adds its sink", async () => {
 	const g = gate();
 	const h = harness("trunk", {
-		exec: async () => {
+		run: async () => {
 			await g.opened;
 			return result();
 		},
@@ -170,7 +158,7 @@ Deno.test("single flight: a duplicate submit joins the queued job and adds its s
 	ok(again.accepted && again.joined);
 	g.release();
 	await h.settle();
-	equal(h.execs.length, 1);
+	equal(h.bundles.length, 1);
 	deepStrictEqual(
 		h.deliveries.map((d) => d.sink.kind).sort(),
 		["approval", "repo"],
@@ -181,7 +169,7 @@ Deno.test("strict priority on cue:trunk: trunk, then trunk moves outside the Adv
 	const g = gate();
 	const order: string[] = [];
 	const h = harness("trunk", {
-		exec: async (command) => {
+		run: async (command) => {
 			order.push(command);
 			if (order.length === 1) await g.opened;
 			return result();
@@ -210,7 +198,7 @@ Deno.test("previews: never on cue:trunk; one in flight per principal; the latest
 	const trunk = harness("trunk");
 	const refused = trunk.queue.submit(job(1, "preview", { principal: "a_x" }));
 	ok(!refused.accepted && refused.reason === "invalid");
-	const p = harness("preview", { exec: () => new Promise(() => {}) });
+	const p = harness("preview", { run: () => new Promise(() => {}) });
 	ok(
 		!p.queue.submit(job(1, "trunk")).accepted,
 		"kernel work never runs on a preview sandbox",
@@ -247,7 +235,7 @@ Deno.test("previews: never on cue:trunk; one in flight per principal; the latest
 		[[KEY(1), "running"], [KEY(4), "queued"]],
 	);
 	// A queued request of a lane is replaced by the latest one.
-	const q = harness("preview", { exec: () => new Promise(() => {}) });
+	const q = harness("preview", { run: () => new Promise(() => {}) });
 	ok(q.queue.submit(job(10, "preview", { principal: "a_hog" })).accepted); // runs
 	ok(
 		q.queue.submit(job(11, "preview", { principal: "a_two", laneId: lane }))
@@ -264,7 +252,7 @@ Deno.test("previews: never on cue:trunk; one in flight per principal; the latest
 		[KEY(12)],
 	);
 	// A full queue answers rate_limited.
-	const full = harness("preview", { exec: () => new Promise(() => {}) });
+	const full = harness("preview", { run: () => new Promise(() => {}) });
 	for (let i = 0; i < REPO_CONFIG_LIMITS.previewQueue; i++) {
 		ok(
 			full.queue.submit(job(100 + i, "preview", { principal: `a_p${i}` }))
@@ -290,7 +278,7 @@ Deno.test("previews: never on cue:trunk; one in flight per principal; the latest
 });
 
 Deno.test("a flood of slow previews never delays a trunk evaluation (separate sandboxes)", async () => {
-	const previews = harness("preview", { exec: () => new Promise(() => {}) });
+	const previews = harness("preview", { run: () => new Promise(() => {}) });
 	for (let i = 0; i < 20; i++) {
 		previews.queue.submit(job(500 + i, "preview", { principal: `a_${i}` }));
 	}
@@ -300,17 +288,14 @@ Deno.test("a flood of slow previews never delays a trunk evaluation (separate sa
 	await trunk.settle();
 	equal(trunk.deliveries.length, 1);
 	ok(Date.now() - started < REPO_CONFIG_LIMITS.deadlineWarmMs);
-	// The two cue sandboxes stay outside the job-slot semaphore, whose total
-	// keeps CI below the container cap (wrangler.jsonc max_instances 20).
-	ok(JOB_SLOT_DEFAULTS.total + 2 <= 20);
 });
 
-Deno.test("no container: unavailable at once; a failing exec delivers EVALUATOR_UNAVAILABLE", async () => {
+Deno.test("no evaluator: unavailable at once; a failing run delivers EVALUATOR_UNAVAILABLE", async () => {
 	const off = harness("trunk", { available: false });
 	const answer = off.queue.submit(job(1, "trunk"));
 	ok(!answer.accepted && answer.reason === "unavailable");
 	const broken = harness("trunk", {
-		exec: () => Promise.reject(new Error("start failed")),
+		run: () => Promise.reject(new Error("start failed")),
 	});
 	ok(broken.queue.submit(job(2, "trunk")).accepted);
 	await broken.settle();
@@ -332,7 +317,7 @@ Deno.test("no container: unavailable at once; a failing exec delivers EVALUATOR_
 });
 
 Deno.test("a CUE error is classified by the job's own result line", async () => {
-	const h = harness("trunk", { exec: () => Promise.resolve(result(1)) });
+	const h = harness("trunk", { run: () => Promise.resolve(result(1)) });
 	h.queue.submit(job(1, "trunk"));
 	await h.settle();
 	const env = h.deliveries[0].envelope;
@@ -343,41 +328,19 @@ Deno.test("a CUE error is classified by the job's own result line", async () => 
 	}
 });
 
-Deno.test("the evaluator sandboxes always have container instances: job slots never reach max_instances (ADR 'When and where evaluation runs')", async () => {
-	// `cue:trunk` and `cue:preview:<k>` take no job slot; the forge-wide job
-	// semaphore stays below the container class's max_instances by at least
-	// those sandboxes, so saturated CI never takes the trunk evaluator's
-	// instance (with headroom for kernel git jobs and the lane self-test).
-	const wrangler = await Deno.readTextFile(
-		new URL("../../../wrangler.jsonc", import.meta.url),
-	);
-	const block = /"class_name":\s*"TartanSandbox"[^}]*"max_instances":\s*(\d+)/
-		.exec(wrangler);
-	ok(block, "the TartanSandbox container block names max_instances");
-	const maxInstances = Number(block![1]);
-	const evaluators = 1 + REPO_CONFIG_LIMITS.previewSandboxes;
-	ok(
-		JOB_SLOT_DEFAULTS.total + evaluators < maxInstances,
-		`${JOB_SLOT_DEFAULTS.total} job slots + ${evaluators} evaluators < ${maxInstances}`,
-	);
-	ok(JOB_SLOT_DEFAULTS.ci < JOB_SLOT_DEFAULTS.total);
-});
-
-Deno.test("the runner image and CI pin the contract's cue release with the same sha256", async () => {
+Deno.test("the evaluator module and CI's oracle pin the contract's cue release", async () => {
 	const read = (path: string) =>
 		Deno.readTextFile(new URL(`../../../${path}`, import.meta.url));
-	const dockerfile = await read("containers/runner/Dockerfile");
+	const goMod = await read("tools/cue-wasm/go.mod");
 	const workflow = await read(".github/workflows/ci.yml");
-	const arg = (name: string) =>
-		new RegExp(`^ARG ${name}=(\\S+)$`, "m").exec(dockerfile)?.[1];
-	const env = (name: string) =>
-		new RegExp(`^\\s+${name}: (\\S+)$`, "m").exec(workflow)?.[1];
-	equal(arg("CUE_VERSION"), CUE_VERSION);
-	equal(env("CUE_VERSION"), CUE_VERSION);
-	match(arg("CUE_SHA256_AMD64") ?? "", /^[0-9a-f]{64}$/);
-	match(arg("CUE_SHA256_ARM64") ?? "", /^[0-9a-f]{64}$/);
-	// GitHub's runners are amd64: the workflow checks the image's amd64 pin.
-	equal(env("CUE_SHA256"), arg("CUE_SHA256_AMD64"));
+	const vitest = await read("vitest.config.ts");
+	equal(
+		/^\s*(?:require )?cuelang\.org\/go (\S+)$/m.exec(goMod)?.[1],
+		CUE_VERSION,
+	);
+	equal(/^\s+CUE_VERSION: (\S+)$/m.exec(workflow)?.[1], CUE_VERSION);
+	ok(vitest.includes(`web/public${CUE_WASM_MODULE_ASSET}`));
+	ok(vitest.includes(`web/public${CUE_WASM_GLUE_ASSET}`));
 	ok(CUE_EVALUATOR_ID.startsWith(`cue@${CUE_VERSION}/`));
 });
 
@@ -386,15 +349,15 @@ const codeOf = (e: EvalResponse | undefined): string | undefined =>
 	e === undefined || isEvalOk(e) ? undefined : e.error.code;
 
 Deno.test("an input that crashes the evaluator twice while other inputs evaluate is answered LIMIT_EXCEEDED, cacheably", async () => {
-	/** The tartan.cue of the bundle the exec runs. */
+	/** The tartan.cue of the bundle being evaluated. */
 	const running = () => {
-		const bundle = JSON.parse(h.writes.at(-1)!.content);
+		const bundle = JSON.parse(h.bundles.at(-1)!);
 		return atob(bundle.files["tartan.cue"]);
 	};
 	const h: ReturnType<typeof harness> = harness("trunk", {
-		exec: () =>
+		run: () =>
 			running().includes("x: 1\n")
-				? Promise.reject(new Error("container exited (OOM)"))
+				? Promise.reject(new Error("evaluator crashed"))
 				: Promise.resolve(result()),
 	});
 	equal(h.queue.submit(job(1, "trunk")).accepted, true);
@@ -415,7 +378,7 @@ Deno.test("an input that crashes the evaluator twice while other inputs evaluate
 
 Deno.test("an outage (every input fails) is never mistaken for a poison input", async () => {
 	const h = harness("trunk", {
-		exec: () => Promise.reject(new Error("containers unavailable")),
+		run: () => Promise.reject(new Error("loader unavailable")),
 	});
 	for (let i = 0; i < 4; i++) {
 		h.advance(60_000);

@@ -36,19 +36,20 @@ The design follows from four constraints:
 1. **K13: policy comes from trunk.** A change to Tartan config always goes to a person and is applied only from trunk.
 2. **The kernel is the security boundary, not CUE.** CUE's closedness is a good author experience. It is never what
    stops a configuration from disabling a gate, widening a grant or reaching outside the repository.
-3. **Untrusted input never runs where the forge runs.** A CUE evaluation must be stoppable by a process kill and have
-   its own memory limit, apart from every Durable Object and Worker isolate.
-4. **The CLI decides what the CUE means.** Which files form package `tartan` is decided by the official loader, never
-   by a hand-written filter that could disagree with it.
+3. **Untrusted input never runs where the forge runs.** A CUE evaluation must be stoppable from outside and have its
+   own memory limit, in an isolate of its own, apart from every Durable Object and the forge Worker.
+4. **Upstream's loader decides what the CUE means.** Which files form package `tartan` is decided by the official
+   loader, never by a hand-written filter that could disagree with it.
 
 ## Decision
 
 1. **Contract `tartan.cue-eval/1`.** An evaluator-agnostic request (files in, a schema overlay, limits) and a
    response envelope `{version, ok | error{code, message, hint?}, issues[]}` with positioned issues.
-2. **Evaluator:** the official `cue` CLI, pinned at v0.17.1, running `cue export -E --out json .:tartan` over the
-   repository's root `*.cue` files inside a Tartan Sandbox container with a 10 s kill, a 2 GiB address-space limit,
-   capped output, a clean environment, no network, no module registry and an unprivileged user. The kernel sends the
-   files in, so the container holds no token and no secret.
+2. **Evaluator:** CUE v0.17.1 compiled to WebAssembly (`tools/cue-wasm`, `GOOS=js`), doing what
+   `cue export -E --out json .:tartan` does through the same upstream packages, over the repository's root `*.cue`
+   files, in a Dynamic Worker with a 10 s CPU limit, a 96 MiB memory cap declared by the module, capped output, an
+   empty filesystem, no bindings, no network and no module registry. The kernel sends the files in, so the Dynamic
+   Worker holds no token and no secret. The official CLI is the oracle its corpus test compares with.
 3. **Content-addressed cache in RepoDO.** Every evaluation is keyed by the contract, the evaluator id, the schema and
    the `(name, blob id)` list of every root `*.cue` file. An Advance that touches no root `*.cue` file changes nothing
    and runs nothing. Pages, MCP tools, extensions and the project graph read cached JSON and never run CUE.
@@ -137,8 +138,8 @@ extensions: "tartan.review": settings: owners: rules: [
 ]
 ```
 
-**The CLI decides which files are Tartan config.** The kernel sends every root `*.cue` file, and the evaluator runs
-`cue export .:tartan`. The CLI's own loader then selects the package:
+**Upstream's loader decides which files are Tartan config.** The kernel sends every root `*.cue` file, and the evaluator
+asks CUE's own loader for `.:tartan`, as `cue export .:tartan` does. It selects the package:
 
 - files of other packages are left alone, even when they import modules the evaluator cannot reach;
 - `_`- and `.`-prefixed files, `*_tool.cue`, `*_test.cue`, files behind an unset `@if(…)` attribute and files without
@@ -181,7 +182,8 @@ builds for each job, so package `tartan` may import only the CUE standard librar
   package of the repository's own module, a vendored package, or the job's own module. For example: "package tartan
   may import only the CUE standard library and tartan.dev/ext: `ci.cue:3:8` imports `github.com/acme/schemas/ci`".
 - The job has no network and never fetches from a registry. Registry and repository-local imports are a follow-up.
-- `@embed` can read only the root `*.cue` files that were sent; CUE refuses a parent path.
+- `@embed` can read only the files of the job's module: the root `*.cue` files that were sent, the forge's schema and
+  the job's module file; CUE refuses a parent path. A value that embeds the module file differs per evaluation.
 
 **Local use.**
 
@@ -305,10 +307,10 @@ function from `packages/contract`.
   package `tartan` and, on purpose, other packages' root files too. A directory named `*.cue` is rejected by the file
   rule, and changing it needs a sign-off like a file, so it can never change the digest of a signed-off change in
   flight without a person. A file's package cannot be read from its path, and a kernel parser of package clauses would be a second loader
-  that could disagree with the CLI. A disagreement in one direction would let a configuration change land without a
+  that could disagree with the loader. A disagreement in one direction would let a configuration change land without a
   person.
 - The cost: an edit to another tool's root file (cuenv's `env.cue`) also needs a sign-off. Narrowing the predicate to
-  package `tartan` needs the evaluator to report the files it loaded, which the CLI does not do today.
+  package `tartan` needs the evaluator to report the files it loaded, which it does not do today.
 - The zero-config test scripts stay policy for review routing and for CI, which reads them at the base, as before.
   They do not need the sign-off.
 
@@ -421,8 +423,6 @@ one recorded when that commit's configuration was evaluated. The newest 50 rows 
   then registry re-evaluations (staggered, repositories with a pending trunk first), then self-checks.
 - Lane previews go to `cue:preview:<k>`, chosen by a hash of the requesting principal. A flood of hostile previews
   can therefore never delay a trunk evaluation.
-- A `cue` job-slot kind reserves capacity for each class below the forge's container limit, so CI cannot take the last
-  instance from the trunk evaluator.
 - Previews are rate-limited: one lane in flight per principal (a newer push of that lane queues behind its running
   preview), the latest request per lane replaces a queued one, a per-principal budget, and a bounded queue that
   answers `rate_limited` when full. A rate-limited or unavailable preview is queued again with backoff.
@@ -436,27 +436,25 @@ one recorded when that commit's configuration was evaluated. The newest 50 rows 
 1. RepoDO calls `cueSubmit`, which enqueues and returns at once. No request and no timer handler waits for an
    evaluation.
 2. The sandbox runs one job at a time, single-flighted by input key, so retries and duplicates join the running job.
-3. It writes one size-capped bundle of the validated root `*.cue` files and the generated overlay, then runs one exec
-   that:
-   - wipes stale job directories;
-   - unpacks the bundle into a fresh private directory, re-checking every name;
-   - runs the job script, which runs `cue export -E --out json .:tartan` in that directory;
-   - removes the directory on exit.
+3. It builds one size-capped bundle of the validated root `*.cue` files and the generated overlay, and evaluates it in
+   a new Go instance in the sandbox's Dynamic Worker, under a module path fresh for the job. An instance holds nothing
+   after its call.
 4. The result returns to the repository's Durable Object through a callback.
-5. A short watchdog timer enforces the deadline, counted from dispatch: 75 s for an attempt that starts the container,
+5. A short watchdog timer enforces the deadline, counted from dispatch: 75 s for an attempt that loads the evaluator,
    30 s otherwise.
 
 ## The evaluator job
 
 | Guard           | Value                                                                                                                           |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Wall clock      | `timeout --foreground -s KILL 10`                                                                                               |
-| Address space   | `ulimit -v` 2 GiB, verified on the production architecture before the feature is switched on                                    |
-| Memory backstop | the container's OOM killer prefers `cue` (`oom_score_adj 1000`); the instance type leaves room for the control server           |
-| Output          | `ulimit -f` caps the JSON file and the stderr file alike; the host reads at most 256 KiB of JSON and the first 64 KiB of stderr. cue's Go runtime ignores SIGXFSZ, so an export that reaches the cap fails its write and exits 1: the job reports that as the file cap (`LIMIT_EXCEEDED`), and error text is cut at the cap with cue's own status |
-| Environment     | an empty environment with `CUE_REGISTRY=none`, an unprivileged user, and no network for `cue:*` instances                       |
-| Escapes         | the module root is the job directory and its module path is fresh for each job; `@embed` of a parent path is refused by CUE     |
-| Versions        | the job reports `cue version` and its own version; a mismatch with the evaluator id is an internal error and is never cached    |
+| CPU             | 10 s on the Dynamic Worker entrypoint, verified on a deployed stage before the feature is switched on; past a host deadline 5 s later, the call is an outage |
+| Loading         | before the CPU-limited call, under its own 20 s deadline; a failure there is an outage, never the input's limit                  |
+| Memory          | the module declares a 96 MiB maximum, so reaching it is a Go out-of-memory fatal (`LIMIT_EXCEEDED`), inside the isolate's 128 MB  |
+| Isolation       | a Dynamic Worker per evaluator sandbox: no bindings, `globalOutbound: null`, an empty filesystem                                 |
+| Output          | the host keeps at most 256 KiB of JSON and the first 64 KiB of error text; an export of 4 MiB or more is `LIMIT_EXCEEDED`         |
+| Environment     | an empty environment with `CUE_REGISTRY=none`                                                                                    |
+| Escapes         | the module root is an overlay and its module path is fresh for each job; `@embed` of a parent path is refused by CUE             |
+| Versions        | the job reports the linked CUE version and its own; a mismatch with the evaluator id is an internal error and is never cached    |
 | Secrets         | none: files in, JSON out                                                                                                        |
 
 CUE's messages contain text the repository controls. They are normalized into `issues[]` with positions checked by
@@ -684,13 +682,12 @@ in the slot host.
 
 ## Build and deploy
 
-- **No generated artifact is committed.** The schema is generated by ForgeDO at runtime, and there is no Wasm build.
-- **Runner image:** a separate Dockerfile stage, selected by `TARGETARCH`, downloads the official
-  `cue_v0.17.1_linux_<arch>.tar.gz`, checks it against a pinned sha256 for each architecture, installs `cue`, asserts
-  `cue version`, and copies the committed `cue-job.sh`. The binary adds about 10 MB to the image. `/-/health` reports
-  the CUE version.
-- **Switch:** `render-config.ts` writes `TARTAN_REPO_CONFIG` as `off` (the default until the security review) or `on`, and
-  `--no-containers` forces `off`.
+- **No generated artifact is committed.** The schema is generated by ForgeDO at runtime.
+- **Evaluator module:** `deno task build:cue` builds `tools/cue-wasm` (dependencies pinned by its `go.mod` and
+  `go.sum`), declares the memory cap, and writes the gzipped module (about 8 MB; 35 MB uncompressed) and the toolchain's
+  `wasm_exec.js` under `web/public/_cue/`, which every SPA build copies to the static assets. `deploy --repo-config` runs it and needs Go. The Worker reads the
+  assets only to start a Dynamic Worker, so its own bundle does not grow.
+- **Switch:** `render-config.ts` writes `TARTAN_REPO_CONFIG` as `off` (the default until the security review) or `on`.
   - With it `off`, nothing is evaluated, held or signed, and a forge has no repository config ("Retiring the YAML
     files"). Installations that repository config already made stay in force, because people approved them; the
     settings page says repository config is off; Owners can uninstall.
@@ -703,10 +700,11 @@ in the slot host.
     change to a person and CI plans zero-config; installations wait as `needs-apply`. A repository with no Tartan
     config at the tip reads no config once that evaluation ran. If trunk did not move while the switch was off, only
     the registry changes made meanwhile are re-evaluated.
-- **Upgrading CUE** means bumping the version, both sha256 values and the evaluator id together. Repositories
+- **Upgrading CUE** means bumping `CUE_VERSION`, `tools/cue-wasm/go.mod`, the asset paths in `vitest.config.ts` and
+  CI's oracle together; the evaluator id follows `CUE_VERSION`. Repositories
   re-evaluate lazily.
-- **Capacity:** two more sandboxes (`cue:trunk`, `cue:preview:0`), asleep when idle, each running one job at a time on
-  the runner's instance type.
+- **Capacity:** two Durable Objects (`cue:trunk`, `cue:preview:0`), each running one job at a time in its own Dynamic
+  Worker. No container instance is used.
 
 ## Limits
 
@@ -716,9 +714,9 @@ in the slot host.
 | Exported JSON             | 256 KiB, depth 32                                                           |
 | Issues                    | 256 per evaluation, 4 KiB per message                                       |
 | Stderr read               | 64 KiB                                                                      |
-| Evaluation wall clock     | 10 s, then SIGKILL                                                          |
-| Address space             | 2 GiB                                                                       |
-| Host deadline per attempt | 75 s with a container start, 30 s otherwise                                 |
+| Evaluation CPU            | 10 s, then stopped by the platform                                          |
+| Memory                    | 96 MiB, the module's declared maximum                                       |
+| Host deadline per attempt | 75 s when the evaluator loads, 30 s otherwise                               |
 | Package `config.cue`      | 64 KiB                                                                      |
 | Previews                  | one in flight per principal; a per-principal hourly budget; a bounded queue |
 | Cache                     | 50 entries per repository plus the applied one and the kept history rows    |
@@ -730,8 +728,8 @@ The file, deadline, preview and history numbers are starting values, to be tuned
 
 | Option                                                                             | Outcome     | Reason                                                                                                                                                                                                                                                                                             |
 | ---------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CUE compiled to WebAssembly in a Worker                                            | deferred    | Upstream's module loader does not build for that target, so the package loader would be hand-written and could disagree with the CLI on file selection. An in-isolate evaluator cannot be stopped by a process kill. It may replace the CLI later, on every path at once, behind the same contract |
-| A Wasm preview evaluator beside the CLI                                            | rejected    | Two evaluators can disagree, so a preview could pass where trunk fails                                                                                                                                                                                                                             |
+| The official `cue` CLI in a Sandbox container                                      | replaced    | The first implementation. It made repository config need a container on every forge, with a cold start per evaluator. Its process kill and 2 GiB limit are stronger than a CPU limit and a 96 MiB cap, and no valid configuration within the file limits has been seen to need them              |
+| A CLI evaluator beside the WebAssembly one                                         | rejected    | Two evaluators can disagree, so a preview could pass where trunk fails                                                                                                                                                                                                                             |
 | CUE inside a Durable Object or the forge Worker                                    | rejected    | Untrusted evaluation would share the forge's memory and its blast radius                                                                                                                                                                                                                           |
 | Rust bindings (cgo-based) compiled to Wasm                                         | rejected    | They link the Go implementation through cgo, which no Wasm target can link                                                                                                                                                                                                                         |
 | Native Rust CUE implementations                                                    | rejected    | Not yet complete enough: closedness through imports and error positions are missing                                                                                                                                                                                                                |
@@ -759,8 +757,9 @@ policy, so an edit to one is an ordinary change.
 ## Testing
 
 - **Deno unit tests:**
-  - the CUE corpus through the contract with the real CLI (`CUE_BIN`), for valid, invalid and pathological inputs;
-  - package selection by the CLI: a root with `package tartan` files beside another package that imports an
+  - the CUE corpus through the contract, comparing the evaluator's envelope with the real CLI's (`CUE_BIN`,
+    `CUE_WASM_DIR`), for valid, invalid and pathological inputs;
+  - package selection by the loader: a root with `package tartan` files beside another package that imports an
     unreachable module, `_`-prefixed, `_tool`, `_test`, `@if` and package-less files evaluates to the `tartan` files
     only, and a root with no `package tartan` file exports `{}`;
   - the schema layout, including unset optional overlay fields, settings and repo policy in one closed entry, and an
@@ -784,23 +783,32 @@ policy, so an edit to one is an ordinary change.
   - timers not delayed by a slow sandbox;
   - previews never applying and never read as policy, and lane ownership;
   - a preview flood plus saturated CI that leaves a trunk evaluation within its deadline.
-- **Container:** the corpus through `cueSubmit` in the runner image, the container healthy after every pathological
-  case, and no token in the job environment.
-- **Live,** before the switch goes on: cold and warm timings, the memory limit and the OOM backstop on the production
-  architecture, no outbound network, and the demo end to end.
+- **workerd, the evaluator:** the production Dynamic Worker over the built module, including the memory cap. workerd
+  does not enforce CPU or isolate memory limits locally.
+- **Live,** before the switch goes on: cold and warm timings, a CPU kill, a runaway at the memory cap inside the
+  isolate's 128 MB, no outbound network, and the demo end to end.
 
 ## Risks
+
+- **An owner's trunk push is a sign-off.** A forge without a runner has no Advance, so the forge owner's direct push of
+  a root `*.cue` file evaluates and applies. That includes a push with the owner's token, an exception to "tokens
+  cannot sign off" (K13.3): a leaked `repo:write` token of the owner could turn on packages an Owner already approved.
+  It could already rewrite trunk. Only the forge's owner can push trunk directly; agents and other Owners cannot.
 
 - **Holding on an unavailable evaluator** trades availability for safety, per repository; "keep last-good" is the
   audited escape.
 - **The sign-off adds a click** for every change to a root `*.cue` file, other tools' files included, until the
   evaluator can report which files it loaded.
-- **No repository config while the switch is off.** The YAML files are retired, so a forge with the switch off (or
-  deployed without containers) runs CI zero-config and review without owners rules.
+- **No repository config while the switch is off.** The YAML files are retired, so a forge with the switch off runs CI zero-config and review without owners rules.
 - **Imports are limited** to the CUE standard library and `tartan.dev/ext` until a module cache exists; teams that
   share schemas across repositories have to inline them for now.
 - **Overlays need an extension host change.** Without it, repository config still offers own installs and repo
   policy.
-- **A shared preview sandbox** sees several repositories' files one after another, in per-job directories that are
-  wiped and removed, with no token. A per-repository preview sandbox is the fallback if that is not enough for
-  private repositories.
+- **A shared preview evaluator** sees several repositories' files one after another, each in a new Go instance, with
+  no token. A per-repository loader id is the fallback if that is not enough for private repositories.
+- **The evaluator shares a V8 sandbox boundary, not a process boundary.** A bug in CUE stays inside WebAssembly, and a
+  V8 escape is the platform's boundary to hold, as it is for every Dynamic Worker extension.
+- **Deep nesting is limited by the isolate's call stack,** since Go on WebAssembly uses the host's: an extreme input
+  answers `LIMIT_EXCEEDED`, where the CLI's parser refuses it at 10,000 levels. Exported JSON stops at depth 32 anyway.
+- **The memory cap is lower than the CLI's limit,** so an evaluation that needs over 96 MiB fails `LIMIT_EXCEEDED`.
+  The corpus's largest refused input peaks near 90 MiB, and its ordinary configurations near 21 MiB.

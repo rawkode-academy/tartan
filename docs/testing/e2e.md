@@ -51,8 +51,8 @@ deno task e2e -- <command>          scripts/e2e/main.ts (Deno)
   containers and repository config on: `--image dockerfile` (wrangler builds the runner image with Docker and pushes it
   to the account's own `registry.cloudflare.com`) and `--repo-config` (each repo's root CUE package `tartan` is
   evaluated). `stage up --image registry` renders the ttl.sh digest that `containers/runner/publish.ts` records
-  instead ([`deploy.md`](../deploy.md#the-runner-image)). `stage up --no-containers` turns containers and
-  repository config off, and the suites that need them skip with the reason (the run's summary lists them).
+  instead ([`deploy.md`](../deploy.md#the-runner-image)). `stage up --no-containers` turns containers off,
+  and the suites that need them skip with the reason (the run's summary lists them).
 - **The M2 switches** are deploy's own flags, passed through by `stage up` and recorded in the deploy record's
   `switches` (modes and booleans only), which the run hands to the suites (`TARTAN_E2E_SWITCHES`, `stage.switches`): a
   suite that needs a switch skips with the reason when the stage lacks it. The M2 acceptance stage is

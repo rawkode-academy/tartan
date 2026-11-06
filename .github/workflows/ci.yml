@@ -61,10 +61,10 @@ jobs:
       - name: Type check
         run: deno task check
 
-      # The CLI-backed repository-config tests (src/kernel/repoconfig/
-      # corpus.test.ts) need the official cue release that the runner image
-      # pins (containers/runner/Dockerfile; same version and sha256, checked
-      # by src/kernel/runs/cue.test.ts). Without CUE_BIN they skip.
+      # The repository-config corpus (src/kernel/repoconfig/corpus.test.ts)
+      # compares the evaluator with the official cue release of the same
+      # version (checked by src/kernel/runs/cue.test.ts). Without CUE_BIN or
+      # the built evaluator its cases skip.
       - name: Install cue (pinned) for the repository-config tests
         env:
           CUE_VERSION: v0.17.1
@@ -78,6 +78,17 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/cue" cue
           test "$("$RUNNER_TEMP/cue/cue" version | sed -n '1p')" = "cue version ${CUE_VERSION}"
           echo "CUE_BIN=$RUNNER_TEMP/cue/cue" >> "$GITHUB_ENV"
+
+      - name: Setup Go for the evaluator
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: tools/cue-wasm/go.mod
+
+      # Its corpus comparison and workerd test skip without the build.
+      - name: Build the evaluator (tools/cue-wasm)
+        run: |
+          deno task build:cue
+          echo "CUE_WASM_DIR=$GITHUB_WORKSPACE/web/public" >> "$GITHUB_ENV"
 
       # The Rust → WASM extension package (extensions/issues): its
       # wasm cases in the Deno and workerd suites skip without dist/.
