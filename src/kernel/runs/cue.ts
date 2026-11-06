@@ -13,18 +13,13 @@
 //   (a newer push of that lane queues behind its running preview), the
 //   latest request per lane replaces a queued one, a per-principal hourly
 //   budget and a bounded queue that answers `rate_limited`.
-// - One job = one size-capped bundle written with `writeFile`, then one
-//   exec of `containers/runner/cue-job.sh` as `tartan-git`, which unpacks
-//   into a private `mktemp -d`, re-checks every name, writes the forge
-//   module's `cue.mod/module.cue` with a module path fresh for the job, runs
-//   `cue export -E --out json .:tartan` under a SIGKILL timeout, RLIMIT_AS,
-//   RLIMIT_FSIZE, OOM priority and an empty environment with
-//   `CUE_REGISTRY=none`, and prints one JSON line. The CLI selects package
-//   `tartan` among the root `*.cue` files (ADR repo config).
+// - One job = one size-capped bundle, evaluated by CUE compiled to WebAssembly
+//   in a Dynamic Worker (`repoconfig/evaluators/wasm.ts`). The module's loader
+//   selects package `tartan` among the root `*.cue` files (ADR repo config).
 // - The envelope goes back through a sink (`envCueSinks`): RepoDO's
 //   `repoconfig().cueResult` or the registry's `selfCheckResult`.
 //
-// The container holds no token and no secret: files in, JSON out.
+// The Dynamic Worker holds no token and no secret: files in, JSON out.
 
 import {
 	CUE_EVAL_CONTRACT,
@@ -51,24 +46,10 @@ import {
 	summarizeIssues,
 } from "../repoconfig/issues.ts";
 import { createMutex } from "./exec.ts";
-import { asUid, KILL_CONTENT_UID } from "./shell.ts";
 
 // ---------------------------------------------------------------------------
 // The bundle
 // ---------------------------------------------------------------------------
-
-/** Where the image installs the job (Dockerfile cue stage). */
-export const CUE_JOB_SCRIPT = "/opt/tartan-cue/cue-job.sh";
-/**
- * Bundles are written here by the root control server: a root-owned 0755
- * directory the image creates, so `tartan-git` can read a bundle but never
- * create, replace or link an entry (in world-writable `/tmp`, a leftover
- * job process could plant a symlink at a guessed path).
- */
-export const CUE_BUNDLE_DIR = "/opt/tartan-cue/bundles";
-/** One file per job, removed after the exec. */
-export const cueBundlePath = (jobId: string): string =>
-	`${CUE_BUNDLE_DIR}/bundle-${jobId}.json`;
 
 /**
  * Paths a bundle may hold (module-root-relative): the forge's schema
@@ -76,8 +57,7 @@ export const cueBundlePath = (jobId: string): string =>
  * validated root `<name>.cue` files (any package). No repository name can
  * equal a forge name: those hold a `/` or a `~`. The job writes
  * `cue.mod/module.cue` itself (a module path fresh per job), so a bundle
- * never carries one. `cue-job.sh` re-checks the same rule before it writes
- * anything.
+ * never carries one.
  */
 export const CUE_BUNDLE_PATH_RE =
 	/^(cue\.mod\/pkg\/tartan\.dev\/ext\/ext\.cue|cue\.mod\/pkg\/tartan\.dev\/ext\/x\/[a-z0-9_]{1,64}\/settings\.cue|~tartan\.cue|[A-Za-z0-9_.-]+\.cue)$/;
@@ -120,73 +100,25 @@ export const buildCueBundle = (
 	return { ok: true, json };
 };
 
-/**
- * The one exec of a job, run as root by the sandbox's control server: the
- * job drops to `tartan-git` itself (no new privileges), every process left
- * by `tartan-git` afterwards is killed, so nothing a job started outlives it
- * into the next repository's job, then the bundle is
- * removed (root's file in the bundle directory), and stale bundles of
- * crashed jobs are wiped.
- */
-export const cueJobCommand = (
-	jobId: string,
-	limits: EvalLimits,
-	/** Dev probes only: no RLIMIT_AS, so the instance OOM backstop is measured. */
-	options: { readonly unboundedAddressSpace?: boolean } = {},
-): string => {
-	if (!/^[a-z0-9_]{1,64}$/.test(jobId)) throw new Error("unsafe job id");
-	const bundle = cueBundlePath(jobId);
-	const job = asUid("tartan-git", [
-		"env",
-		"-i",
-		"PATH=/usr/local/bin:/usr/bin:/bin",
-		`CUE_JOB_TIMEOUT_S=${Math.floor(limits.wallClockS)}`,
-		`CUE_JOB_VM_KIB=${
-			options.unboundedAddressSpace === true
-				? "unlimited"
-				: Math.floor(limits.addressSpaceKiB)
-		}`,
-		`CUE_JOB_FSIZE_KIB=${Math.floor(limits.outputFileKiB)}`,
-		`CUE_JOB_OUT_BYTES=${Math.floor(limits.jsonBytes)}`,
-		`CUE_JOB_ERR_BYTES=${Math.floor(limits.stderrBytes)}`,
-		CUE_JOB_SCRIPT,
-		bundle,
-	], { noNewPrivs: true });
-	return [
-		`find ${CUE_BUNDLE_DIR} -maxdepth 1 -name 'bundle-*.json' -mmin +10 -delete 2>/dev/null`,
-		`${job}; rc=$?`,
-		KILL_CONTENT_UID,
-		`rm -f ${bundle}`,
-		"exit $rc",
-	].join("; ");
-};
-
 // ---------------------------------------------------------------------------
 // The classifier: the job's JSON line → tartan.cue-eval/1
 // ---------------------------------------------------------------------------
 
-/** Exit codes `cue-job.sh` reports (cue's own: 0 ok, 1 CUE errors). */
+/** Exit codes of the job's result line (cue's own: 0 ok, 1 CUE errors). */
 export const CUE_JOB_EXIT = {
 	ok: 0,
 	cueErrors: 1,
-	/** The Go runtime aborted (out of memory under RLIMIT_AS). */
+	/** The Go runtime aborted (out of memory at the module's cap, or out of stack). */
 	goFatal: 2,
-	/** The job could not set up its directory or limits. */
-	setup: 70,
-	/** The unpacker refused the bundle (a name or size rule). */
-	rejected: 71,
-	/** The wall clock (normalized from a SIGKILL after the limit). */
+	/** The CPU limit. */
 	timeout: 124,
-	/** SIGKILL before the wall clock: the instance OOM killer. */
+	/** The platform ended the call for memory. */
 	killed: 137,
-	/**
-	 * The file cap: SIGXFSZ, or the output file at RLIMIT_FSIZE after cue
-	 * exited 1 (its Go runtime ignores SIGXFSZ; the job normalizes it).
-	 */
+	/** The export reached `outputFileKiB`. */
 	fileSize: 153,
 } as const;
 
-/** The one line `cue-job.sh` prints. */
+/** The job's one result line. */
 export type CueJobOutput = {
 	readonly job: number;
 	readonly cue: string | null;
@@ -275,16 +207,10 @@ export const classifyCueJob = (
 			`job version ${out.job}, expected ${CUE_JOB_VERSION}`,
 		);
 	}
-	if (out.rc === CUE_JOB_EXIT.rejected) {
-		return fail("INVALID_INPUT", `bundle rejected: ${headText(out.err)}`);
-	}
-	if (out.rc === CUE_JOB_EXIT.setup) {
-		return fail("INTERNAL", `job setup failed: ${headText(out.err)}`);
-	}
 	if (out.cue !== CUE_VERSION) {
 		return fail(
 			"INTERNAL",
-			`cue ${out.cue ?? "missing"} in the image, expected ${CUE_VERSION}`,
+			`cue ${out.cue ?? "missing"} in the evaluator, expected ${CUE_VERSION}`,
 		);
 	}
 	switch (out.rc) {
@@ -306,7 +232,7 @@ export const classifyCueJob = (
 		case CUE_JOB_EXIT.timeout:
 			return fail(
 				"TIMEOUT",
-				`evaluation stopped after ${limits.wallClockS} s (SIGKILL)`,
+				`evaluation stopped after ${limits.wallClockS} s of CPU`,
 			);
 		case CUE_JOB_EXIT.fileSize:
 			return fail(
@@ -314,10 +240,11 @@ export const classifyCueJob = (
 				"output or error text reached the file cap",
 			);
 		case CUE_JOB_EXIT.killed:
-			return fail("LIMIT_EXCEEDED", "killed by the instance memory limit");
+			return fail("LIMIT_EXCEEDED", "stopped by the isolate memory limit");
 		case CUE_JOB_EXIT.goFatal:
-			return /out of memory|cannot allocate memory/i.test(out.err)
-				? fail("LIMIT_EXCEEDED", "address-space limit reached")
+			return /out of memory|cannot allocate memory|maximum call stack/i
+					.test(out.err)
+				? fail("LIMIT_EXCEEDED", "memory or stack limit reached")
 				: fail("INTERNAL", `cue aborted: ${headText(out.err)}`);
 		case CUE_JOB_EXIT.cueErrors: {
 			const issues = normalizeCueErrors(out.err);
@@ -376,20 +303,14 @@ type CueJobRow = {
 	attempts: number;
 };
 
-export type CueExecResult = {
-	readonly exitCode: number;
-	readonly stdout: string;
-	readonly stderr: string;
-};
-
 /** What the queue needs from its sandbox. */
 export type CuePort = {
-	/** False without a container (`--no-containers`, vitest). */
+	/** False without the evaluator's bindings. */
 	available(): boolean;
-	/** Whether the container is running now (deadline 30 s, else 75 s). */
+	/** Whether the evaluator is loaded (deadline 30 s, else 75 s). */
 	warm(): boolean;
-	writeFile(path: string, content: string): Promise<void>;
-	exec(command: string, timeoutMs: number): Promise<CueExecResult>;
+	/** One job: a bundle in, the job's result line out. */
+	run(bundle: string, limits: EvalLimits): Promise<string>;
 	waitUntil(work: Promise<unknown>): void;
 };
 
@@ -419,13 +340,11 @@ export type CueQueueDeps = {
 export const CUE_TRUNK_QUEUE_MAX = 1000;
 /** A job whose run outlived this is reset (an evicted DO). */
 export const CUE_RUNNING_STALE_MS = 2 * 60 * 1000;
-/** The exec's own transport timeout (the job kills cue at 10 s). */
-export const CUE_EXEC_TIMEOUT_MS = 60_000;
 const HOUR_MS = 60 * 60 * 1000;
 const START_TRIES = 3;
 const START_BACKOFF_MS = 2_000;
 /**
- * An input whose job crashed the exec or the container this many times,
+ * An input whose job crashed the evaluator this many times,
  * while other inputs evaluated in between, is answered `LIMIT_EXCEEDED`
  * (cacheable), so its repo goes `failed` instead of retrying it forever on
  * the shared evaluator.
@@ -497,7 +416,7 @@ export const createCueQueue = (deps: CueQueueDeps) => {
 		if (!port.available()) {
 			return refuse(
 				"unavailable",
-				"containers are not enabled for this deployment",
+				"the repository-config evaluator is not available in this deployment",
 			);
 		}
 		const key = job.request.inputKey;
@@ -665,7 +584,7 @@ export const createCueQueue = (deps: CueQueueDeps) => {
 		}));
 	};
 
-	/** The job crashed: the exec or the container failed, or the run was interrupted. */
+	/** The job crashed: the evaluator failed, or the run was interrupted. */
 	const crashed = (envelope: EvalResponse): boolean =>
 		!isEvalOk(envelope) &&
 		(envelope.error.code === "EVALUATOR_UNAVAILABLE" ||
@@ -728,12 +647,8 @@ export const createCueQueue = (deps: CueQueueDeps) => {
 		let last: unknown;
 		for (let i = 0; i < START_TRIES; i++) {
 			try {
-				await port.writeFile(cueBundlePath(row.id), request.bundle);
-				const out = await port.exec(
-					cueJobCommand(row.id, request.limits),
-					CUE_EXEC_TIMEOUT_MS,
-				);
-				return classifyCueJob(out.stdout, {
+				const line = await port.run(request.bundle, request.limits);
+				return classifyCueJob(line, {
 					evaluator: request.evaluator,
 					limits: request.limits,
 				});
@@ -793,8 +708,6 @@ export const createCueQueue = (deps: CueQueueDeps) => {
 	return {
 		submit,
 		drain,
-		/** Runs `fn` under the queue's own mutex: no job runs meanwhile (dev probes). */
-		exclusive: <T>(fn: () => Promise<T>): Promise<T> => lock(fn),
 		/** Jobs queued or running (tests, diagnostics). */
 		list: () =>
 			rows("SELECT * FROM cue_jobs ORDER BY priority, enqueued_at").map((

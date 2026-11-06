@@ -86,7 +86,6 @@ import { lastSetupInfo } from "./kernel/http/isolate.ts";
 import { withSecurity } from "./kernel/http/middleware.ts";
 import { handleInbox } from "./kernel/inbox/routes.ts";
 import { handleDevLand } from "./kernel/land/dev.ts";
-import { handleDevCue } from "./kernel/runs/cueprobe.ts";
 import {
 	handleAdvances,
 	handleBlame,
@@ -933,17 +932,6 @@ export const ROUTES: readonly Route[] = [
 		policy: POLICY.deployScript,
 		pattern: withRest("/-/dev/land"),
 		handler: handleDevLand,
-	},
-	// Dev stages only: probes of the repository-config evaluator
-	// sandboxes (network, memory limits, timings), authorized by
-	// the dev key alone in the handler (404 without it), in any setup state.
-	{
-		id: "dev.cue",
-		owner: "WP9",
-		methods: ["POST"],
-		policy: POLICY.deployScript,
-		pattern: exact("/-/dev/cue"),
-		handler: handleDevCue,
 	},
 	// Dev stages only: the WP25 live acceptance (seed a tree, read its
 	// projects), authorized by the dev key alone in the handler.

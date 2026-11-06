@@ -2,8 +2,8 @@
 
 A repository configures its CI pipeline, its review owners, its global files and some of its extensions in
 [CUE](https://cuelang.org), in an ordinary CUE package named `tartan` in the repository root. The forge evaluates it
-with the official `cue` command-line tool (v0.17.1) in a sandbox, checks the result, and applies it from the
-default branch only. Design: [`design/ADR-repo-config-cue.md`](design/ADR-repo-config-cue.md).
+with CUE v0.17.1 compiled to WebAssembly, in a Dynamic Worker with no network and no bindings, checks the result, and
+applies it from the default branch only. Design: [`design/ADR-repo-config-cue.md`](design/ADR-repo-config-cue.md).
 
 > **Spike branch (`spike/strip-down`).** The CI pipeline (`tartan.ci`), review owners (`tartan.review`) and Weave
 > settings below came from first-party extensions that this branch removed. What stays is the kernel's part: the root
@@ -24,7 +24,7 @@ is off, nothing is evaluated: CI runs zero-config and review has no owners rules
 Tartan config is every `*.cue` file directly in the repository root whose package clause is `package tartan`. Name and
 split the files as you like. Files of other packages in the same directory (for example a cuenv `env.cue` with
 `package cuenv`) are left alone, and subdirectories are never read by this config (a `package tartan` file there makes
-a [project](projects.md)). The `cue` tool decides which files belong to
+a [project](projects.md)). CUE's own module loader decides which files belong to
 package `tartan`, with its own rules (`_`-prefixed names, `*_tool.cue`, `*_test.cue` and `@if(…)` attributes
 included).
 
@@ -102,7 +102,7 @@ cp *.cue /tmp/tartan-schema/ && cd /tmp/tartan-schema
 CUE_REGISTRY=none cue export -E --out json .:tartan
 ```
 
-That prints exactly what the forge evaluates. In the repository itself, `cue export .:tartan` gives the same values
+That prints what the forge evaluates: it runs the same CUE release, except for the memory and CPU limits above. In the repository itself, `cue export .:tartan` gives the same values
 without the forge's closedness checks.
 
 On a lane, `tt config vet --repo <path> --lane <id>` (or the MCP tool `repo_config_preview`) evaluates the lane head and shows
@@ -135,7 +135,7 @@ from, the repo policy in force, the approvals, and the schema. An Owner can **Ke
 | File names           | ASCII letters, digits, `_`, `.` and `-`; regular files only (no symlinks or submodules) |
 | Exported JSON        | 256 KiB, nesting depth 32                                                               |
 | Errors shown         | 256 per evaluation, 4 KiB per message                                                   |
-| Evaluation           | 10 s wall clock, then killed; 2 GiB of address space; no network                        |
+| Evaluation           | 10 s of CPU, then stopped; 96 MiB of memory; no network                                 |
 | Previews             | one lane in flight per agent or person, an hourly budget, a bounded queue; retried      |
 | Trunk config history | the newest 50 changes of the config per repository                                      |
 

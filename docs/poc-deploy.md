@@ -42,7 +42,7 @@ Cloudflare account; run it only when ready to create the dev-stage forge.
 
 Use `--no-containers --projects` again on every redeploy. Without a container
 runner, there is no CI or automated landing; an owner can push fast-forward
-to the default branch. Do not pass `--repo-config`: it requires a container
+to the default branch. `--repo-config` is not part of this first configuration: it needs Go at deploy time
 and is separate from project scanning.
 
 ## Claim the forge

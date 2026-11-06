@@ -245,7 +245,7 @@ const flowFor = async (stage: Stage, title: string) =>
 const skipUnlessConfig = (stage: Stage) => {
 	test.skip(
 		!stage.containers,
-		"the CUE evaluator runs in containers (the stage was deployed with --no-containers)",
+		"these flows land through the runner (the stage was deployed with --no-containers)",
 	);
 	test.skip(
 		!stage.switches.repoConfig,

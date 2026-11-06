@@ -1,6 +1,6 @@
 // TartanSandbox (`job:<runUlid>` | `git:<repoUlid>` | `selftest` | `cue:trunk`
 // | `cue:preview:<k>`; the `cue:*` evaluators of repository config, ADR repo
-// config, start with `enableInternet: false` and serve only `cueSubmit`): real
+// config, serve only `cueSubmit` and never start their container): real
 // git and toolchains in a container, as a `Sandbox` subclass from
 // `@cloudflare/sandbox` 0.12.1 whose custom RPC goes through the DO stub.
 //
@@ -26,13 +26,12 @@
 
 import { parseSSEStream, Sandbox } from "@cloudflare/sandbox";
 import {
+	CUE_EVALUATOR_ID,
 	CUE_TRUNK_SANDBOX,
 	type CueJobInput,
 	type CueSubmitResult,
-	DEFAULT_EVAL_LIMITS,
 	FORGE_DO_NAME,
 	type GitSource,
-	invalid,
 	notFound,
 	repoArtifactsName,
 	repoDoName,
@@ -47,21 +46,10 @@ import {
 import { withRpc } from "../../do/dispose.ts";
 import type { Env } from "../../env.ts";
 import {
-	buildCueBundle,
-	classifyCueJob,
-	createCueQueue,
-	CUE_EXEC_TIMEOUT_MS,
-	cueBundlePath,
-	cueJobCommand,
-	type CueQueue,
-	type CueSinks,
-} from "./cue.ts";
-import {
-	CUE_PROBE_COMMANDS,
-	type CueProbeInput,
-	type CueProbeResult,
-	summarize,
-} from "./cueprobe.ts";
+	createCueGuest,
+	runCueWasmJob,
+} from "../repoconfig/evaluators/wasm.ts";
+import { createCueQueue, type CueQueue, type CueSinks } from "./cue.ts";
 import { createSerializedGitExec, WARM_SLEEP_AFTER } from "./exec.ts";
 import {
 	createJobRunner,
@@ -287,23 +275,26 @@ export class TartanSandbox extends Sandbox<Env> {
 			destroy: () => this.#destroy(),
 		});
 		const role = cueRoleOf(state.id.name);
-		if (role !== null) {
-			// The evaluators never reach the network (the job is hermetic
-			// through CUE_REGISTRY=none as well).
-			this.enableInternet = false;
-		}
+		let cueLoaded = false;
 		this.#cue = role === null ? null : createCueQueue({
 			sql,
 			role,
 			sinks: envCueSinks(env),
 			port: {
-				available: () => this.#available,
-				warm: () => this.ctx.container?.running === true,
-				writeFile: async (path, content) => {
-					this.#requireContainer();
-					await this.writeFile(path, content, { sessionId: SESSIONLESS });
-				},
-				exec: (command, timeoutMs) => this.#exec(command, { timeoutMs }),
+				available: () => env.LOADER !== undefined && env.ASSETS !== undefined,
+				warm: () => cueLoaded,
+				run: (bundle, limits) =>
+					runCueWasmJob(bundle, limits, {
+						guest: createCueGuest({
+							loader: env.LOADER,
+							assets: env.ASSETS,
+							evaluator: CUE_EVALUATOR_ID,
+							sandbox: state.id.name ?? role,
+						}),
+						onLoaded: () => {
+							cueLoaded = true;
+						},
+					}),
 				waitUntil: (work) => this.ctx.waitUntil(work),
 			},
 		});
@@ -418,86 +409,5 @@ export class TartanSandbox extends Sandbox<Env> {
 			};
 		}
 		return this.#cue.submit(job);
-	}
-
-	/**
-	 * Dev stages only (`TARTAN_STAGE ^dev`, `TARTAN_DEV_TOOLS=1`): one fixed
-	 * probe of this evaluator sandbox under the queue's mutex
-	 * (`src/kernel/runs/cueprobe.ts`).
-	 */
-	async cueProbe(input: CueProbeInput): Promise<CueProbeResult> {
-		const cue = this.#cue;
-		if (cue === null) throw invalid("not a repository-config evaluator");
-		if (
-			!/^dev/.test(this.env.TARTAN_STAGE) || this.env.TARTAN_DEV_TOOLS !== "1"
-		) {
-			throw notFound("no such probe");
-		}
-		this.#requireContainer();
-		const sandbox = this.ctx.id.name ?? "";
-		return await cue.exclusive(async () => {
-			const warm = this.ctx.container?.running === true;
-			const started = Date.now();
-			let output: string | undefined;
-			let result: CueProbeResult["result"];
-			if (input.probe === "info" || input.probe === "net") {
-				const out = await this.#exec(CUE_PROBE_COMMANDS[input.probe], {
-					timeoutMs: 60_000,
-				});
-				output = safeText(`${out.stdout}${out.stderr}`).slice(0, 8192);
-			} else {
-				const limits = { ...DEFAULT_EVAL_LIMITS, ...(input.limits ?? {}) };
-				const bundle = buildCueBundle(input.files ?? {});
-				if (!bundle.ok) throw invalid(bundle.message);
-				const id = `probe_${Date.now().toString(36)}`;
-				await this.writeFile(cueBundlePath(id), bundle.json, {
-					sessionId: SESSIONLESS,
-				});
-				const before = input.probe === "oom"
-					? (await this.#exec(CUE_PROBE_COMMANDS.pid1, { timeoutMs: 30_000 }))
-						.stdout.trim()
-					: "";
-				const out = await this.#exec(
-					cueJobCommand(id, limits, {
-						unboundedAddressSpace: input.probe === "oom",
-					}),
-					{ timeoutMs: CUE_EXEC_TIMEOUT_MS + limits.wallClockS * 1000 },
-				);
-				result = summarize(classifyCueJob(out.stdout, { limits }));
-				if (input.probe === "oom") {
-					// The OOM victim, and whether the control server's instance
-					// survived it: read after the job, before `healthy`.
-					try {
-						const after = await this.#exec(CUE_PROBE_COMMANDS.victim, {
-							timeoutMs: 30_000,
-						});
-						output = safeText(
-							`pid1-start-before: ${before}\n${after.stdout}${after.stderr}`,
-						).slice(0, 8192);
-					} catch (error) {
-						output = `pid1-start-before: ${before}\nvictim read failed: ${
-							String(error).slice(0, 200)
-						}`;
-					}
-				}
-			}
-			const ms = Date.now() - started;
-			let healthy = false;
-			try {
-				healthy = (await this.#exec("true", { timeoutMs: 30_000 }))
-					.exitCode === 0;
-			} catch {
-				healthy = false;
-			}
-			return {
-				probe: input.probe,
-				sandbox,
-				ms,
-				...(output === undefined ? {} : { output }),
-				...(result === undefined ? {} : { result }),
-				healthy,
-				warm,
-			};
-		});
 	}
 }

@@ -9,8 +9,10 @@ The first configuration uses `--no-containers --projects`. Repeat both flags
 on every deploy: switches are rendered per deployment. The former omits the
 runner, so CI and automated landing are unavailable; the owner can still make
 fast-forward pushes to the default branch. The latter enables project
-scanning and project pages. Do not add `--repo-config` to this configuration:
-it requires a container and is separate from project discovery.
+scanning and project pages. `--repo-config` is separate from project
+discovery and needs no container: it builds the CUE evaluator with Go, and the
+deploy publishes it with the SPA. Workers Builds and the deploy button run only
+the SPA build, so they do not publish it: use the deploy script.
 
 `--build-ext` builds the Issues WASM package locally. It does not publish or
 install the package; do that after claiming the forge, as described in the

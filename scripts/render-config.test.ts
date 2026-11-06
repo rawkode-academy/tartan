@@ -456,7 +456,7 @@ Deno.test("--dev-tools sets TARTAN_DEV_TOOLS=1 on dev stages only", () => {
 	);
 });
 
-Deno.test("--repo-config on sets TARTAN_REPO_CONFIG=on; absent means off; it needs containers", () => {
+Deno.test("--repo-config on sets TARTAN_REPO_CONFIG=on; absent means off; it needs no containers", () => {
 	const vars = (o: Partial<RenderOptions>) => obj(render(o).vars);
 	assert.equal(vars({ repoConfig: true }).TARTAN_REPO_CONFIG, "on");
 	assert.equal(vars({}).TARTAN_REPO_CONFIG, undefined);
@@ -464,13 +464,9 @@ Deno.test("--repo-config on sets TARTAN_REPO_CONFIG=on; absent means off; it nee
 		renderConfig(source, options({ repoConfig: true })),
 		/repo_config=on/,
 	);
-	throwsRender(
-		() =>
-			renderConfig(
-				source,
-				options({ repoConfig: true, containers: false }),
-			),
-		/--repo-config on needs containers/,
+	assert.equal(
+		vars({ repoConfig: true, containers: false }).TARTAN_REPO_CONFIG,
+		"on",
 	);
 	assert.equal(
 		parseCliArgs(["--stage", "dev", "--repo-config", "on"])?.repoConfig,
@@ -481,16 +477,15 @@ Deno.test("--repo-config on sets TARTAN_REPO_CONFIG=on; absent means off; it nee
 		() => parseCliArgs(["--stage", "dev", "--repo-config", "yes"]),
 		/--repo-config is on or off/,
 	);
-	throwsRender(
-		() =>
-			parseCliArgs([
-				"--stage",
-				"dev",
-				"--repo-config",
-				"on",
-				"--no-containers",
-			]),
-		/cannot be combined with --no-containers/,
+	assert.equal(
+		parseCliArgs([
+			"--stage",
+			"dev",
+			"--repo-config",
+			"on",
+			"--no-containers",
+		])?.repoConfig,
+		true,
 	);
 });
 

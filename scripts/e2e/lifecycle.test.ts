@@ -357,7 +357,7 @@ Deno.test("deploy and destroy are called for dev-e2e in the given account only",
 	});
 	ok(off.includes("--no-containers"));
 	ok(off.includes("--delete-setup-token"));
-	equal(off.includes("--repo-config"), false, "repo config needs containers");
+	ok(off.includes("--repo-config"), "repo config needs no containers");
 	equal(off.includes("--image"), false);
 	const down = destroyArgs(ACCOUNT);
 	deepStrictEqual(down.slice(2, 5), [

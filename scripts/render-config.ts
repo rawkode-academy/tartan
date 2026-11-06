@@ -18,7 +18,7 @@
 //     (the documented fallback if the edge rejects it);
 //   - `--repo-config on` sets `vars.TARTAN_REPO_CONFIG = "on"` (repository
 //     config in CUE, ADR repo config; absent means off, the default); it
-//     needs containers, so `--no-containers` keeps it off;
+//     needs no containers (the evaluator is a Dynamic Worker);
 //   - `--projects scan` sets `vars.TARTAN_PROJECTS = "scan"` (monorepo
 //     projects from `package tartan` directories; absent means off, the default);
 //     it needs no containers (the scan runs in the Worker);
@@ -112,7 +112,7 @@ export type RenderOptions = {
 	readonly evictionFlag: boolean;
 	/** `TARTAN_DEV_TOOLS = "1"`; only for a `dev`/`dev-*` stage. */
 	readonly devTools?: boolean;
-	/** `TARTAN_REPO_CONFIG = "on"`; needs containers (the evaluator runs there). */
+	/** `TARTAN_REPO_CONFIG = "on"`. */
 	readonly repoConfig?: boolean;
 	/** The global log (WP26): absent = no stream, inline dispatch. */
 	readonly k2?: K2Render;
@@ -815,11 +815,6 @@ export const renderConfig = (
 			`--dev-tools needs a dev or dev-* stage, not ${JSON.stringify(stage)}`,
 		);
 	}
-	if (options.repoConfig && !options.containers) {
-		fail(
-			"--repo-config on needs containers: the evaluator runs in the sandbox",
-		);
-	}
 	const renderedVars: [string, string][] = [
 		["TARTAN_STAGE", stage],
 		...(options.devTools ? [[DEV_TOOLS_VAR, "1"] as [string, string]] : []),
@@ -970,7 +965,7 @@ export const USAGE =
   --image-record <path>    the registry record (default: ${RUNNER_IMAGE_RECORD} next to the source)
   --no-eviction-flag       drop ${EVICTION_FLAG}
   --dev-tools              set ${DEV_TOOLS_VAR}=1 (dev and dev-* stages only)
-  --repo-config <on|off>   ${REPO_CONFIG_VAR}=on evaluates the root CUE package tartan (default off; needs containers)
+  --repo-config <on|off>   ${REPO_CONFIG_VAR}=on evaluates the root CUE package tartan (default off)
   --k2-stream <id>         the global log: bind ${K2_BINDING} to this K2 stream id
                            (32 hex) and set ${K2_STREAM_VAR}
   --k2-token-store <id>    the K2 Consume token's Secrets Store id (32 hex) …
@@ -1131,9 +1126,6 @@ export const parseCliArgs = (
 		fail(
 			`--dev-tools needs a dev or dev-* stage, not ${JSON.stringify(stage)}`,
 		);
-	}
-	if (repoConfig && !containers) {
-		fail("--repo-config on cannot be combined with --no-containers");
 	}
 	if ((k2TokenStore === undefined) !== (k2TokenSecret === undefined)) {
 		fail("--k2-token-store and --k2-token-secret go together");

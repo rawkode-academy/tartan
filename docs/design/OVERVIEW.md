@@ -131,7 +131,7 @@ The git gateway, the MCP host and the SPA run inside the Worker and share its or
 ### The Sandbox runner
 
 `TartanSandbox` runs one container image, built from `containers/runner/Dockerfile` on the Cloudflare Sandbox base
-image with git 2.56.0, pnpm 10.34.6 and the `cue` CLI v0.17.1 added at pinned versions. It runs CI jobs, the
+image with git 2.56.0, and pnpm 10.34.6 added at pinned versions. It runs CI jobs, the
 Advance's git work (`merge-tree`, commit, notes, pushes with a lease) and repository config evaluation. Inside the
 container, processes that parse repository content run as one unprivileged user with read tokens only; a process that
 holds a write token runs as a second user, and the first user's processes are stopped before it starts. Tokens are
@@ -1231,7 +1231,7 @@ waits for `/-/health`, and prints the single-use setup URL. `deno task destroy -
 | ----------------------------------------------- | ------------- | -------------------------------------------------------------- |
 | `--domain <host>`                               | none          | a Workers Custom Domain on a zone in the same account          |
 | `--no-containers`                               | containers on | no runner image; CI and lands report "unavailable"             |
-| `--repo-config`                                 | off           | repository config in CUE (needs containers)                    |
+| `--repo-config`                                 | off           | repository config in CUE (needs Go to build)                   |
 | `--projects`                                    | off           | the project pages                                              |
 | `--lane-mode import\|branch`                    | `branch`      | the forge's lane mode; an Owner can override it per repository |
 | `--k2`, `--k2-token-store`, `--k2-token-secret` | no K2 binding | the global event log and its consumer                          |

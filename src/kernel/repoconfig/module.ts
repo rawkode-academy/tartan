@@ -1696,7 +1696,7 @@ export const createRepoConfig = (
 			errorOutcome(work, hostEvalError("INVALID_INPUT", answer.message), key);
 			return;
 		}
-		// Unavailable (CONTAINERS_UNAVAILABLE included) or a full trunk queue.
+		// Unavailable, or a full trunk queue.
 		errorOutcome(
 			work,
 			hostEvalError("EVALUATOR_UNAVAILABLE", answer.message),

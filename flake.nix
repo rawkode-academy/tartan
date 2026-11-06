@@ -73,6 +73,7 @@
 						cue
 						pkgs.deno
 						pkgs.git
+						pkgs.go
 						pkgs.nodejs_24
 						pkgs.patchelf
 						rust

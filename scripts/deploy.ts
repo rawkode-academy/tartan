@@ -40,7 +40,7 @@
 // Deploy tooling only; runtime code never imports it.
 
 import * as path from "node:path";
-import type { HealthResponse } from "@tartan/contract";
+import { CUE_WASM_BUILD_ASSET, type HealthResponse } from "@tartan/contract";
 import { logStreamName } from "../src/kernel/bus/config.ts";
 import { cfK2Streams, ensureLogStream, retentionFor } from "./k2.ts";
 import {
@@ -102,7 +102,7 @@ export class DeployError extends Error {
 export type DeployOptions = PreflightPlan & {
 	readonly evictionFlag: boolean;
 	readonly devTools: boolean;
-	/** `TARTAN_REPO_CONFIG = "on"` (ADR repo config): off unless asked; needs containers. */
+	/** `TARTAN_REPO_CONFIG = "on"` (ADR repo config): off unless asked. */
 	readonly repoConfig: boolean;
 	/** `TARTAN_PROJECTS = "scan"`: projects and their pages; off unless asked. */
 	readonly projects: boolean;
@@ -169,7 +169,7 @@ export const DEPLOY_USAGE =
   --no-eviction-flag      drop durable_object_io_tasks_prevent_eviction
   --dev-tools             TARTAN_DEV_TOOLS=1 (dev and dev-* stages only)
   --repo-config           TARTAN_REPO_CONFIG=on: evaluate each repo's root CUE
-                          package tartan (needs containers; off by default)
+                          package tartan (needs Go to build; off by default)
   --projects              TARTAN_PROJECTS=scan: directories with a package tartan
                           file become the repos' projects, with project pages
                           (off by default)
@@ -207,11 +207,6 @@ export const optionsFromArgs = (
 			`--dev-tools needs a dev or dev-* stage, not ${
 				JSON.stringify(plan.stage)
 			}`,
-		);
-	}
-	if (flags.has("repo-config") && flags.has("no-containers")) {
-		throw new UsageError(
-			"--repo-config needs containers: the CUE evaluator runs in the sandbox",
 		);
 	}
 	if (flags.has("delete-setup-token") && flags.has("keep-setup-token")) {
@@ -1189,6 +1184,17 @@ export const runDeploy = async (
 	if (!pre.ok || pre.auth === null) {
 		throw new PreflightError("preflight failed; fix the items marked fail");
 	}
+	if (options.build && options.repoConfig) {
+		const go = await deps.run("go", ["version"], { cwd: deps.root }).then(
+			(r) => r.code === 0,
+			() => false,
+		);
+		if (!go) {
+			throw new PreflightError(
+				"--repo-config builds the CUE evaluator: install Go",
+			);
+		}
+	}
 	if (options.buildExt) {
 		const issues = await extToolchainIssues(deps);
 		if (issues.length > 0) {
@@ -1309,6 +1315,16 @@ export const runDeploy = async (
 	// 4. Build and deploy.
 	const before = await listSecrets(api, deps.run, names.worker);
 	const firstDeploy = before !== null && !before.exists;
+	// Before the SPA: its build copies the evaluator to the static assets.
+	if (options.build && options.repoConfig) {
+		const cue = await deps.run("deno", ["task", "build:cue"], {
+			io: "inherit",
+			cwd: deps.root,
+		});
+		if (cue.code !== 0) {
+			throw new DeployError(`deno task build:cue failed (exit ${cue.code})`);
+		}
+	}
 	if (options.build) {
 		const build = await deps.run("npm", ["run", "build:web"], {
 			io: "inherit",
@@ -1317,6 +1333,18 @@ export const runDeploy = async (
 		if (build.code !== 0) {
 			throw new DeployError(`npm run build:web failed (exit ${build.code})`);
 		}
+	}
+	// The switch on without its evaluator would hold every policy change at
+	// runtime; `--skip-build` needs an earlier `deno task build:cue`.
+	if (
+		options.repoConfig &&
+		await deps.readText(
+				path.join(deps.root, "web", "public", CUE_WASM_BUILD_ASSET),
+			) === null
+	) {
+		throw new DeployError(
+			"--repo-config needs the CUE evaluator: run deno task build:cue",
+		);
 	}
 	if (options.buildExt) {
 		for (const name of EXT_PACKAGES) {

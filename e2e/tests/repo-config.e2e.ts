@@ -38,7 +38,7 @@ test(
 	async ({ app, browser, stage }) => {
 		test.skip(
 			!stage.containers,
-			"the CUE evaluator runs in a container (the stage was deployed with --no-containers)",
+			"these flows land through the runner (the stage was deployed with --no-containers)",
 		);
 		const repo = await fixtureRepo(
 			stage,

@@ -20,12 +20,7 @@ import {
 	REPO_CONFIG_LIMITS,
 } from "@tartan/contract";
 import { MODE } from "@tartan/testkit";
-import {
-	buildCueBundle,
-	classifyCueJob,
-	CUE_JOB_EXIT,
-	cueJobCommand,
-} from "../runs/cue.ts";
+import { buildCueBundle, classifyCueJob, CUE_JOB_EXIT } from "../runs/cue.ts";
 import {
 	isLoadIssue,
 	normalizeCueErrors,
@@ -439,10 +434,6 @@ Deno.test("classifier: every exit code maps to one envelope; a refused import is
 		"LIMIT_EXCEEDED",
 	);
 	equal(code({ rc: CUE_JOB_EXIT.goFatal, err: "panic: x" }), "INTERNAL");
-	equal(
-		code({ rc: CUE_JOB_EXIT.rejected, err: "bundle path refused" }),
-		"INVALID_INPUT",
-	);
 	equal(code({ rc: 1, err: STDERR }), "BUILD_VALUE");
 	equal(
 		code({
@@ -506,37 +497,6 @@ Deno.test("bundle: only the forge's schema, its binding file and root names; no 
 		"a.cue": "x".repeat(700 * 1024),
 	});
 	ok(!big.ok && /exceeds/.test(big.message));
-	const cmd = cueJobCommand("cj_abc", {
-		wallClockS: 10,
-		addressSpaceKiB: 2097152,
-		outputFileKiB: 4096,
-		jsonBytes: 262144,
-		stderrBytes: 65536,
-	});
-	match(cmd, /setpriv --reuid=tartan-git/);
-	match(cmd, /CUE_JOB_TIMEOUT_S=10/);
-	match(
-		cmd,
-		/\/opt\/tartan-cue\/cue-job\.sh \/opt\/tartan-cue\/bundles\/bundle-cj_abc\.json/,
-	);
-	// No new privileges; leftover tartan-git processes are killed
-	// after the job, before the bundle is removed.
-	match(cmd, /setpriv [^;]*--no-new-privs -- /);
-	match(cmd, /rc=\$\?; pkill -KILL -u tartan-git; true; rm -f /);
-	ok(!cmd.includes("/tmp/"), "no bundle in world-writable /tmp");
-	let threw = false;
-	try {
-		cueJobCommand("x; rm -rf /", {
-			wallClockS: 10,
-			addressSpaceKiB: 1,
-			outputFileKiB: 1,
-			jsonBytes: 1,
-			stderrBytes: 1,
-		});
-	} catch {
-		threw = true;
-	}
-	ok(threw);
 });
 
 // ---------------------------------------------------------------------------

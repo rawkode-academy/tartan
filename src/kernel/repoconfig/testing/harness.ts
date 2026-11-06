@@ -310,7 +310,7 @@ export const createRepoConfigHarness = async (
 				return Promise.resolve({
 					accepted: false,
 					reason: "unavailable",
-					message: "containers are not enabled",
+					message: "the evaluator is not available",
 				});
 			}
 			if (control.mode === "hang") return new Promise(() => {});

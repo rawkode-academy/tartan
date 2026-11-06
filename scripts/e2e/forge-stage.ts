@@ -5,8 +5,8 @@
 //   --no-print-url --account <CLOUDFLARE_ACCOUNT_ID>`, plus, by default,
 //   containers with the runner image built here (`--image dockerfile`,
 //   `DEFAULT_IMAGE`; `--image registry` renders the recorded ttl.sh digest
-//   instead) and repository config (`--repo-config`, which needs
-//   containers); `--no-containers` drops both. Once the forge is claimed,
+//   instead), and repository config (`--repo-config`); `--no-containers`
+//   drops containers. Once the forge is claimed,
 //   `--delete-setup-token` too. A fresh forge is then claimed (phase A, the
 //   claim suite) with the setup token read from deploy's 0600 URL file,
 //   which is deleted afterwards.
@@ -267,9 +267,8 @@ export const deployArgs = (
 	"--no-print-url",
 	"--account",
 	input.accountId,
-	...(input.containers
-		? ["--image", input.image, "--repo-config"]
-		: ["--no-containers"]),
+	"--repo-config",
+	...(input.containers ? ["--image", input.image] : ["--no-containers"]),
 	...switchArgs(input.switches),
 	...(input.claimed ? ["--delete-setup-token"] : []),
 ];
