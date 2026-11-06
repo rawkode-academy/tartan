@@ -20,6 +20,7 @@ import {
 	type EvalResponse,
 	FORGE_BINDING_FILE,
 	fromRpcError,
+	KERNEL_EVENT_DATA,
 } from "@tartan/contract";
 import { cueFile } from "./testing/git.ts";
 import {
@@ -1113,4 +1114,13 @@ Deno.test("an owner's trunk push is the config's sign-off: it evaluates and appl
 	equal(rowAt(h, sha)?.status, "ok");
 	equal(await weaveBatch(h), 2, "applied");
 	equal(h.internal.holdSync().held, false);
+});
+
+Deno.test("push.owner is a cause the contract accepts for repo.config.needs-apply", () => {
+	const parsed = KERNEL_EVENT_DATA["repo.config.needs-apply"].safeParse({
+		sha: "a".repeat(40),
+		inputKey: "b".repeat(64),
+		cause: "push.owner",
+	});
+	equal(parsed.success, true);
 });

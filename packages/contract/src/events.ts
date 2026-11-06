@@ -531,6 +531,7 @@ const RepoConfigNeedsApplyData = z.strictObject({
 		"repo.imported",
 		"ref.acknowledged",
 		"ref.reconciled",
+		"push.owner",
 		"repo.created",
 		"removal",
 		/** The switch went on over trunk config nobody signed. */
