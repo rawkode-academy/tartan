@@ -790,6 +790,11 @@ policy, so an edit to one is an ordinary change.
 
 ## Risks
 
+- **An owner's trunk push is a sign-off.** A forge without a runner has no Advance, so the forge owner's direct push of
+  a root `*.cue` file evaluates and applies. That includes a push with the owner's token, an exception to "tokens
+  cannot sign off" (K13.3): a leaked `repo:write` token of the owner could turn on packages an Owner already approved.
+  It could already rewrite trunk. Only the forge's owner can push trunk directly; agents and other Owners cannot.
+
 - **Holding on an unavailable evaluator** trades availability for safety, per repository; "keep last-good" is the
   audited escape.
 - **The sign-off adds a click** for every change to a root `*.cue` file, other tools' files included, until the

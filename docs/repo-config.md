@@ -13,8 +13,8 @@ applies it from the default branch only. Design: [`design/ADR-repo-config-cue.md
 > ([`projects.md`](projects.md)); a `projects` key here names nothing. Those files are read textually, are **not**
 > evaluated by this page's pipeline and are **not** policy-gated: a project-root `.cue` edit lands without a sign-off.
 >
-> **An Owner's direct push is outside all of this.** It takes no sign-off, even for a root `*.cue` file, and the config
-> in force does not follow it ([`limits.md`](limits.md#owner-pushes)). `deno task dev` keeps repository config off for that reason.
+> **An Owner's direct push is its own sign-off.** Pushing a root `*.cue` file to the default branch evaluates and applies
+> it, with no other step ([`limits.md`](limits.md#owner-pushes)). `deno task dev` keeps repository config off for that reason.
 
 Repository config is **off** unless the forge was deployed with `--repo-config` ([`deploy.md`](deploy.md)). While it
 is off, nothing is evaluated: CI runs zero-config and review has no owners rules.

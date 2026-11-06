@@ -43,7 +43,9 @@
 //   head touches a policy path (K13.3) and queues its preview; trunk moves
 //   outside the Advance (`repo.imported`, `repo.created`, `ref.acknowledged`,
 //   `ref.reconciled`) open and resolve a trunk row (read as policy at once)
-//   and give `needs-apply` for installations.
+//   and give `needs-apply` for installations. A trunk push by the forge's owner
+//   (`push.accepted`) goes the same way and then applies: it is that person's
+//   sign-off, the path a forge without a runner has.
 // - `registryChanged` (ForgeDO's outbox): `stale` with a background
 //   re-evaluation of TRUNK's config (the newest trunk row, not the applied
 //   one), under a fresh fence position; a schema-only change never sets
@@ -295,7 +297,8 @@ type ExternalCause =
 	| "ref.acknowledged"
 	| "ref.reconciled"
 	| "repo.created"
-	| "enabled";
+	| "enabled"
+	| "push.owner";
 type FileTriple = [string, string, string];
 type Schema = Pick<
 	RepoConfigSchemaDto,
@@ -1268,6 +1271,32 @@ export const createRepoConfig = (
 	const externalRowSeq = (sha: string): number =>
 		trunkSeqOf(sha) ?? trunkTipSeq();
 
+	/** Applies trunk's config at `sha` in the name of the person `by`. */
+	const startApplySync = (sha: string, by: string): void => {
+		const h = head();
+		const seq = Math.max(h.obs_seq, h.applied_seq ?? 0) + 1;
+		setHead({
+			obs_seq: seq,
+			pending_seq: seq,
+			pending_sha: sha,
+			pending_key: null,
+			pending_cause: "apply",
+			pending_row_seq: externalRowSeq(sha),
+			pending_principals_json: JSON.stringify([by]),
+			pending_removal_ok: 1,
+			external_by: by,
+			eval_attempts: 0,
+			unavailable_until: null,
+		});
+		emit(
+			"repo.config.evaluating",
+			{ sha, cause: "apply", trunkSeq: seq },
+			`evaluating:${seq}`,
+			actorOf(by),
+		);
+		scheduleEval();
+	};
+
 	/** A registry re-apply names the Owner whose change moved the epoch, then the config's signers. */
 	const registryPrincipals = (
 		h: HeadRow,
@@ -1410,6 +1439,13 @@ export const createRepoConfig = (
 					},
 					`needs-apply:${work.sha}:${key}`,
 				);
+				if (
+					h.external_cause === "push.owner" && h.external_by !== null &&
+					answer.denials.length === 0 &&
+					core().refSync(trunkRef())?.sha === work.sha
+				) {
+					startApplySync(work.sha, h.external_by);
+				}
 			});
 			return;
 		}
@@ -2997,6 +3033,17 @@ export const createRepoConfig = (
 				case "repo.imported":
 					markExternal(event.type);
 					return;
+				case "push.accepted":
+					// Only the forge's owner pushes trunk directly (`Owner pushes` in
+					// docs/limits.md); that person's push is the config's sign-off.
+					if (
+						data.target === "repo" && data.ref === trunkRef() &&
+						typeof data.after === "string" && isSha(data.after) &&
+						event.actor.kind === "user"
+					) {
+						markExternal("push.owner", event.actor.id);
+					}
+					return;
 				case "ref.acknowledged": {
 					const refs = Array.isArray(data.refs) ? data.refs : [];
 					if (data.laneId === undefined && refs.includes(trunkRef())) {
@@ -3018,7 +3065,7 @@ export const createRepoConfig = (
 		}
 	};
 
-	const markExternal = (cause: ExternalCause): void => {
+	const markExternal = (cause: ExternalCause, by?: string): void => {
 		if (!live()) return;
 		const h = head();
 		if (cause === "repo.imported") {
@@ -3032,7 +3079,12 @@ export const createRepoConfig = (
 			const tipSeq = tip === null ? null : trunkSeqOf(tip);
 			if (tip !== null && tipSeq !== null) openTrunkRowSync(tipSeq, tip);
 		}
-		setHead({ obs_seq: h.obs_seq + 1, external_due: 1, external_cause: cause });
+		setHead({
+			obs_seq: h.obs_seq + 1,
+			external_due: 1,
+			external_cause: cause,
+			external_by: by ?? null,
+		});
 		scheduleEval();
 	};
 
@@ -3412,27 +3464,7 @@ export const createRepoConfig = (
 					if (h.pending_cause === "advance" && h.pending_sha !== null) {
 						throw conflict("a policy-touching Advance is still resolving");
 					}
-					const seq = Math.max(h.obs_seq, h.applied_seq ?? 0) + 1;
-					setHead({
-						obs_seq: seq,
-						pending_seq: seq,
-						pending_sha: sha,
-						pending_key: null,
-						pending_cause: "apply",
-						pending_row_seq: externalRowSeq(sha),
-						pending_principals_json: JSON.stringify([by]),
-						pending_removal_ok: 1,
-						external_by: by,
-						eval_attempts: 0,
-						unavailable_until: null,
-					});
-					emit(
-						"repo.config.evaluating",
-						{ sha, cause: "apply", trunkSeq: seq },
-						`evaluating:${seq}`,
-						actorOf(by),
-					);
-					scheduleEval();
+					startApplySync(sha, by);
 				});
 				return headDto();
 			}),
